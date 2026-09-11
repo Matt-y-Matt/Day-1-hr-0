@@ -20,7 +20,7 @@ export default function ExportPanel() {
     const ids = (sess || []).map(x => x.id);
     let logs = [];
     if (ids.length) {
-      const { data } = await s.from('set_logs').select('*, exercises(name)').in('session_id', ids);
+      const { data } = await s.from('set_logs').select('*, exercises(name,load_unit)').in('session_id', ids);
       logs = data || [];
     }
 
@@ -45,7 +45,12 @@ export default function ExportPanel() {
         o += `\n**${fmtDate(x.date)} — ${x.workout_days?.name}** (felt ${x.feel_1_5 ?? '—'}/5)\n`;
         const mine = logs.filter(l => l.session_id === x.id);
         const byEx = {};
-        mine.forEach(l => { (byEx[l.exercises?.name || '?'] ||= []).push(l); });
+        mine.forEach(l => {
+          const u = l.exercises?.load_unit;
+          const suffix = u === 'per_hand' ? ' [per hand]' : u === 'added' ? ' [added to BW]'
+            : u === 'stack' ? ' [stack]' : '';
+          (byEx[(l.exercises?.name || '?') + suffix] ||= []).push(l);
+        });
         Object.entries(byEx).forEach(([n, ls]) => {
           const parts = ls.sort((a, b) => a.set_number - b.set_number)
             .map(l => l.hold_seconds ? `${l.hold_seconds}s` : `${l.reps}×${l.weight_kg ?? 0}kg`);

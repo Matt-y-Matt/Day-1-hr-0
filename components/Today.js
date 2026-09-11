@@ -86,10 +86,19 @@ export default function Today({ onStart }) {
 
 function DayCard({ day, onStart }) {
   const [items, setItems] = useState([]);
+  const [open, setOpen] = useState(null);
   useEffect(() => { (async () => {
-    const { data } = await supa().from('workout_exercises')
-      .select('*, exercises(name,priority_tier)').eq('workout_day_id', day.id).order('order_index');
+    const s = supa();
+    const { data } = await s.from('workout_exercises')
+      .select('*, exercises(name,priority_tier,load_unit)').eq('workout_day_id', day.id).order('order_index');
     setItems(data || []);
+    const { data: o } = await s.from('sessions').select('id')
+      .eq('workout_day_id', day.id).eq('date', today()).is('completed_at', null).limit(1);
+    if (o?.length) {
+      const { count } = await s.from('set_logs')
+        .select('id', { count: 'exact', head: true }).eq('session_id', o[0].id);
+      setOpen({ id: o[0].id, sets: count || 0 });
+    }
   })(); }, [day.id]);
 
   const live = items.filter(i => i.is_enabled);
@@ -107,7 +116,9 @@ function DayCard({ day, onStart }) {
           return (
             <div key={i.id} className="row" style={{ marginBottom: 7, justifyContent: 'flex-start' }}>
               <span className="tier" style={{ background: tr.color }}>{tr.label}</span>
-              <span style={{ fontSize: 14, flex: 1 }}>{i.exercises.name}</span>
+              <span style={{ fontSize: 14, flex: 1 }}>{i.exercises.name}
+                {i.exercises.load_unit === 'per_hand' &&
+                  <span className="muted" style={{ fontSize: 11 }}> · per hand</span>}</span>
               <span className="muted">
                 {i.sets}×{i.hold_seconds ? i.hold_seconds + 's' : (i.rep_min === i.rep_max ? i.rep_min : `${i.rep_min}–${i.rep_max}`)}
               </span>
@@ -122,7 +133,14 @@ function DayCard({ day, onStart }) {
         ))}
       </div>
       {off.length > 0 && <div className="flag" style={{ marginTop: 10 }}>{off[0].disabled_reason}</div>}
-      <button className="btn" style={{ marginTop: 12 }} onClick={() => onStart(day)}>Start {day.name}</button>
+      {open && (
+        <div className="flag ok" style={{ marginTop: 10 }}>
+          In progress — {open.sets} set{open.sets === 1 ? '' : 's'} logged. Picks up where you left off.
+        </div>
+      )}
+      <button className="btn" style={{ marginTop: 12 }} onClick={() => onStart(day)}>
+        {open ? `Resume ${day.name}` : `Start ${day.name}`}
+      </button>
     </div>
   );
 }

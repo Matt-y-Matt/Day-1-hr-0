@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { supa, getKey, SUPA_URL } from '../lib/supabase';
+import { supa, getKey, SUPA_URL, BUILD } from '../lib/supabase';
 import Today from '../components/Today';
 import Week from '../components/Week';
 import LogPanel from '../components/LogPanel';
@@ -57,6 +57,13 @@ export default function Page() {
       {view === 'progress' && <Progress />}
       {view === 'diary' && <Diary />}
       {view === 'export' && <ExportPanel />}
+      <div className="wrap" style={{ paddingTop: 0, paddingBottom: 8, textAlign: 'center' }}>
+        <span className="muted" style={{ fontSize: 11, opacity: .5 }}>{BUILD}</span>
+        <span className="muted" style={{ fontSize: 11, opacity: .5 }}> · </span>
+        <button onClick={async () => { await supa().auth.signOut(); location.reload(); }}
+          style={{ background: 'none', border: 0, color: '#8d8a83', fontSize: 11,
+                   opacity: .5, cursor: 'pointer', padding: 0 }}>Sign out</button>
+      </div>
       <nav className="nav">
         {TABS.map(t => (
           <button key={t.k} className={view === t.k ? 'on' : ''} onClick={() => setView(t.k)}>
@@ -91,30 +98,77 @@ function KeySetup() {
 }
 
 function SignIn() {
+  const [mode, setMode] = useState('in');
   const [email, setEmail] = useState('');
-  const [sent, setSent] = useState(false);
+  const [pw, setPw] = useState('');
+  const [pw2, setPw2] = useState('');
   const [err, setErr] = useState('');
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+
   async function go() {
-    const { error } = await supa().auth.signInWithOtp({
-      email, options: { emailRedirectTo: typeof window !== 'undefined' ? window.location.origin : undefined },
-    });
-    if (error) setErr(error.message); else setSent(true);
+    setErr(''); setMsg(''); setBusy(true);
+    const s = supa();
+    if (mode === 'up') {
+      if (pw !== pw2) { setErr('Passwords do not match.'); setBusy(false); return; }
+      if (pw.length < 8) { setErr('Use at least 8 characters.'); setBusy(false); return; }
+      const { data, error } = await s.auth.signUp({ email, password: pw });
+      if (error) setErr(error.message);
+      else if (data.session) { /* signed straight in */ }
+      else setMsg('Account created. Check your email to confirm, then sign in.');
+    } else {
+      const { error } = await s.auth.signInWithPassword({ email, password: pw });
+      if (error) setErr(error.message);
+    }
+    setBusy(false);
   }
+
+  async function reset() {
+    if (!email.includes('@')) { setErr('Enter your email first.'); return; }
+    const { error } = await supa().auth.resetPasswordForEmail(email, {
+      redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined,
+    });
+    if (error) setErr(error.message); else setMsg('Password reset link sent.');
+  }
+
   return (
     <div className="wrap">
       <h1>Training</h1>
-      <p className="sub">Sign in with a magic link</p>
+      <p className="sub">{mode === 'in' ? 'Sign in' : 'Create your account'}</p>
       <div className="card">
-        {sent ? <p className="muted">Check your email — tap the link on this device.</p> : (
-          <>
-            <div className="field"><label>Email</label>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-                placeholder="cofounder@custore.co" /></div>
-            <button className="btn" disabled={!email.includes('@')} onClick={go}>Send link</button>
-            {err && <div className="flag" style={{ marginTop: 12 }}>{err}</div>}
-          </>
+        <div className="field"><label>Email</label>
+          <input type="email" autoComplete="username" value={email}
+            onChange={e => setEmail(e.target.value)} placeholder="cofounder@custore.co" /></div>
+
+        <div className="field"><label>Password</label>
+          <input type="password" autoComplete={mode === 'in' ? 'current-password' : 'new-password'}
+            value={pw} onChange={e => setPw(e.target.value)} placeholder="••••••••" /></div>
+
+        {mode === 'up' && (
+          <div className="field"><label>Confirm password</label>
+            <input type="password" autoComplete="new-password" value={pw2}
+              onChange={e => setPw2(e.target.value)} placeholder="••••••••" /></div>
+        )}
+
+        <button className="btn" disabled={busy || !email.includes('@') || pw.length < 6} onClick={go}>
+          {busy ? 'Working…' : mode === 'in' ? 'Sign in' : 'Create account'}
+        </button>
+
+        {err && <div className="flag" style={{ marginTop: 12 }}>{err}</div>}
+        {msg && <div className="flag ok" style={{ marginTop: 12 }}>{msg}</div>}
+
+        <button className="btn ghost" style={{ marginTop: 10 }}
+          onClick={() => { setMode(mode === 'in' ? 'up' : 'in'); setErr(''); setMsg(''); }}>
+          {mode === 'in' ? 'Create an account instead' : 'I already have an account'}
+        </button>
+
+        {mode === 'in' && (
+          <button className="btn ghost" style={{ marginTop: 10 }} onClick={reset}>
+            Forgot password
+          </button>
         )}
       </div>
+      <p className="muted">Stays signed in on this device. No email link needed.</p>
     </div>
   );
 }
