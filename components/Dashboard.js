@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { supa, LOAD_UNIT } from '../lib/supabase';
+import { supa } from '../lib/supabase';
 import { allRows } from '../lib/export-client';
 import { strengthRows } from '../lib/progress.mjs';
 import { shiftDate } from '../lib/phase2-data.mjs';
@@ -20,21 +20,20 @@ export default function Dashboard({ userId, revision, onPain, onRun, onDaily, on
       try {
         const s = supa();
         const results = await Promise.all([
-          s.from('run_plan').select('*').eq('user_id', userId).eq('date', date),
+          loadSchedule(userId,date,date).then(data=>({data})),
           s.from('pain_logs').select('*').eq('user_id', userId).eq('date', date),
           s.from('workout_days').select('*').eq('user_id', userId).eq('is_active', true),
           s.from('sessions').select('*').eq('user_id', userId).eq('date', date).order('started_at', { ascending: false, nullsFirst: false }),
         ]);
         for (const r of results) if (r.error) throw r.error;
-        const [rawPlans, pain, days, sessions] = results.map(r => r.data || []);
-        const weekday = ((new Date(`${date}T12:00:00`).getDay() + 6) % 7) + 1;
+        const [schedule, pain, days, sessions] = results.map(r => r.data || []);
         const daily = days.filter(d => d.is_daily === true);
-        const scheduled=(await loadSchedule(userId,date,date)).filter(x=>x.status!=='skipped');
+        const scheduled=schedule.filter(x=>x.status!=='skipped');
         const plans=scheduled.filter(x=>x.kind==='run');
         const lifts=scheduled.filter(x=>x.kind==='lift').map(x=>x.day);
         const selected = [...daily, ...lifts];
         const cards = await Promise.all(selected.map(async day => {
-          const { data: baseItems, error } = await s.from('workout_exercises').select('*, exercises(name)').eq('workout_day_id', day.id).eq('is_enabled', true).order('order_index');
+          const { data: baseItems, error } = day.is_daily ? await s.from('workout_exercises').select('*, exercises(name)').eq('workout_day_id', day.id).eq('is_enabled', true).order('order_index') : {data:[]};
           if (error) throw error;
           const session = sessions.find(x => x.workout_day_id === day.id && (!x.schedule_ref || x.schedule_ref===day.schedule_ref) && (day.is_daily || (x.started_at && !x.completed_at)));
           const items=day.is_daily?baseItems:(session?.workout_snapshot||(await loadWorkout(day,userId)).items).filter(x=>x.is_enabled);
@@ -74,5 +73,5 @@ function DashboardWeek({userId,revision,date,onOpen}){
 function KeyLifts({userId,revision,onProgress}){
  const [rows,setRows]=useState(null),[error,setError]=useState('');
  useEffect(()=>{let alive=true;setError('');allRows(()=>supa().from('set_logs').select('*, exercises(name,load_unit,priority_tier), sessions(date)').eq('user_id',userId).order('id')).then(logs=>{if(alive)setRows(strengthRows(logs).slice(0,5));}).catch(e=>{if(alive)setError(e.message);});return()=>{alive=false;};},[userId,revision]);
- return <><div className="section-heading"><h2>Lift progress</h2><button className="text-action" onClick={onProgress}>See all →</button></div><section className="card lift-chart">{error?<p className="flag" role="alert">{error}</p>:!rows?<p className="muted">Loading lift history…</p>:!rows.length?<p className="muted">Log your first lift to start your progress chart.</p>:<><div className="lift-bars">{rows.map(r=>{const measure=x=>Number(x.hold_seconds??x.weight_kg??x.reps??0),first=measure(r.first),last=measure(r.last),scale=Math.max(first,last,1);return <div key={r.id}><div className="bar-pair" role="img" aria-label={`${r.exercise.name}: first ${first}, latest ${last}`}><i style={{height:`${first/scale*100}%`}}/><i style={{height:`${last/scale*100}%`}}/></div><small>{r.exercise.name}</small></div>;})}</div><div className="chart-legend"><span><i/>First recorded</span><span><i/>Latest</span></div><small className="muted">Each exercise uses its own scale.</small></>}</section><h2>Key lifts</h2><div className="key-lift-grid">{rows?.slice(0,2).map(r=><section className="card" key={r.id}><div className="row"><span className="tier" data-tier={r.exercise.priority_tier}>{r.exercise.priority_tier||'—'}</span><strong>{r.exercise.name}</strong></div><b className="key-value">{r.last.hold_seconds??r.last.weight_kg??r.last.reps??'—'}<small>{r.last.hold_seconds!=null?'s':r.last.weight_kg!=null?'kg':'reps'}</small></b><small>{LOAD_UNIT[r.exercise.load_unit]?.short||r.exercise.load_unit} · {r.last.reps??'—'} reps</small></section>)}</div></>;
+ return <><div className="section-heading"><h2>Lift progress</h2><button className="text-action" onClick={onProgress}>See all →</button></div><section className="card lift-chart">{error?<p className="flag" role="alert">{error}</p>:!rows?<p className="muted">Loading lift history…</p>:!rows.length?<p className="muted">Log your first lift to start your progress chart.</p>:<><div className="lift-bars">{rows.map(r=>{const measure=x=>Number(x.hold_seconds??x.weight_kg??x.reps??0),first=measure(r.first),last=measure(r.last),scale=Math.max(first,last,1);return <div key={r.id}><div className="bar-pair" role="img" aria-label={`${r.exercise.name}: first ${first}, latest ${last}`}><i style={{height:`${first/scale*100}%`}}/><i style={{height:`${last/scale*100}%`}}/></div><small>{r.exercise.name}</small></div>;})}</div><div className="chart-legend"><span><i/>First recorded</span><span><i/>Latest</span></div><small className="muted">Each exercise uses its own scale.</small></>}</section></>;
 }

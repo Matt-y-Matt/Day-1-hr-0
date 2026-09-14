@@ -80,7 +80,8 @@ function TrainingApp({ user }) {
   const overlayRef = useRef(null);
   const closing = useRef(false);
   const afterClose = useRef(null);
-  const changed = () => setRevision(x => x + 1);
+  const dirty = useRef(false);
+  const changed = () => { if (overlayRef.current) dirty.current = true; else setRevision(x => x + 1); };
   useEffect(()=>{window.scrollTo({top:0,behavior:'instant'});},[tab,sub]);
   useEffect(()=>{if(!overlay)return;const previous=document.body.style.overflow;document.body.style.overflow='hidden';return()=>{document.body.style.overflow=previous;};},[overlay]);
 
@@ -119,6 +120,7 @@ function TrainingApp({ user }) {
       const current = overlayRef.current;
       if (current) { setTab(current.origin.tab); setSub(current.origin.sub); }
       overlayRef.current = null; setOverlay(null); closing.current = false;
+      if (dirty.current) { dirty.current = false; setRevision(x => x + 1); }
       const action = afterClose.current; afterClose.current = null; action?.();
     };
     window.addEventListener('popstate', pop);
@@ -137,7 +139,7 @@ function TrainingApp({ user }) {
     if (!current) { action?.(); return; }
     afterClose.current = action || null;
     if (history.state?.trainingOverlay === current.token) { closing.current = true; history.back(); }
-    else { overlayRef.current = null; setOverlay(null); setTab(current.origin.tab); setSub(current.origin.sub); afterClose.current = null; action?.(); }
+    else { if (dirty.current) { dirty.current=false; setRevision(x=>x+1); } overlayRef.current = null; setOverlay(null); setTab(current.origin.tab); setSub(current.origin.sub); afterClose.current = null; action?.(); }
   }
   function navigate(next) { const action = () => { setTab(next); if (next === 'dashboard') setSub('overview'); }; if (overlayRef.current) closeOverlay(action); else action(); }
   const nav = <nav className="nav" aria-label="Main navigation">{TABS.map(t => <button key={t.k} className={tab === t.k ? 'on' : ''} onClick={() => navigate(t.k)} aria-current={tab === t.k ? 'page' : undefined}><Icon name={t.k}/>{t.n}</button>)}</nav>;

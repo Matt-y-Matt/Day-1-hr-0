@@ -36,7 +36,8 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
   useEffect(() => { (async () => {
     const s = supa();
     try {
-    const { data: allOpen, error: openError } = await s.from('sessions').select('*').eq('workout_day_id',day.id).eq('user_id',userId).eq('date',today()).order('started_at',{ascending:false,nullsFirst:false});
+    const [openResult,performance,suggestions] = await Promise.all([s.from('sessions').select('*').eq('workout_day_id',day.id).eq('user_id',userId).eq('date',today()).order('started_at',{ascending:false,nullsFirst:false}),s.from('v_last_performance').select('*'),s.from('v_progression_suggestions').select('*')]);
+    const {data:allOpen,error:openError}=openResult;
     if(openError)throw openError;
     const open=(allOpen||[]).filter(x=>!x.schedule_ref||x.schedule_ref===day.schedule_ref);
     const we=open[0]?.workout_snapshot || (await loadWorkout(day,userId)).items;
@@ -47,11 +48,11 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
     setSkipped(all.length - live.length);
     setItems(live);
 
-    const { data: lp, error: lpError } = await s.from('v_last_performance').select('*');
+    const {data:lp,error:lpError}=performance;
     if (lpError) throw lpError;
     const m = {}; (lp || []).forEach(r => { (m[r.exercise_id] ||= {})[r.set_number] = r; });
     setLast(m);
-    const { data: sg, error: sgError } = await s.from('v_progression_suggestions').select('*');
+    const {data:sg,error:sgError}=suggestions;
     if (sgError) throw sgError;
     const g = {}; (sg || []).forEach(r => { g[r.exercise_id] = r; }); setSugg(g);
 
@@ -142,6 +143,7 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
       if (isHold && (!Number.isInteger(Number(holdSeconds)) || Number(holdSeconds) <= 0)) throw new Error('Enter a positive whole number of hold seconds.');
       if (!isHold && (reps === '' || !Number.isInteger(Number(reps)) || Number(reps) <= 0)) throw new Error('Enter a positive whole number of reps.');
       if (!noWeight && !isHold && (weight === '' || !Number.isFinite(Number(weight)) || Number(weight) < 0)) throw new Error('Enter a valid load.');
+      if (!isHold && (rir === '' || !Number.isInteger(Number(rir)) || Number(rir)<0 || Number(rir)>10)) throw new Error('Enter RIR from 0 to 10.');
       const db = supa(); let sid = sessionId;
       if (!sid) {
         sid = await recordId(`gym-session:${userId}:${day.schedule_ref||day.id}:${today()}`);
@@ -149,7 +151,7 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
         if (result.error) throw result.error;
         setSessionId(sid);
       }
-      const row = { user_id: userId, session_id: sid, exercise_id: cur.exercise_id, set_number: setNo, weight_kg: isHold || noWeight ? null : Number(weight), reps: isHold ? null : Number(reps), hold_seconds: isHold ? Number(holdSeconds) : null, rir: isHold ? null : rir };
+      const row = { user_id: userId, session_id: sid, exercise_id: cur.exercise_id, set_number: setNo, weight_kg: isHold || noWeight ? null : Number(weight), reps: isHold ? null : Number(reps), hold_seconds: isHold ? Number(holdSeconds) : null, rir: isHold ? null : Number(rir) };
       const existing = logged[cur.exercise_id]?.[setNo]; let result;
       if (editing && existing) {
         result = await db.from('set_logs').update(row).eq('id',existing.id).eq('user_id',userId).select().single();
@@ -184,6 +186,24 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
     finally { lock.current = false; setBusy(false); }
   }
 
+  async function addSet() {
+    if (lock.current) return;
+    lock.current=true; setBusy(true); setError('');
+    try {
+      let sid=sessionId;
+      if (!sid) {
+        sid=await recordId(`gym-session:${userId}:${day.schedule_ref||day.id}:${today()}`);
+        const r=await supa().from('sessions').upsert({id:sid,user_id:userId,date:today(),workout_day_id:day.id,schedule_ref:day.schedule_ref||null,workout_snapshot:items,started_at:new Date().toISOString()},{onConflict:'id',ignoreDuplicates:true});
+        if(r.error)throw r.error; setSessionId(sid);
+      }
+      const r=await supa().rpc('add_session_set',{p_session:sid,p_exercise:cur.exercise_id,p_expected_sets:Number(cur.sets)});
+      if(r.error)throw r.error;
+      if(!Array.isArray(r.data))throw new Error('Could not confirm the extra set. Retry.');
+      setItems(r.data.filter(x=>x.is_enabled)); setSetNo(Number(cur.sets)+1); setMode('log'); setFinishing(false);
+    } catch(e){setError(`Could not add set: ${e.message}`);}
+    finally{lock.current=false;setBusy(false);}
+  }
+
   async function finish() {
     if (lock.current || !sessionId) return;
     lock.current = true; setBusy(true); setError('');
@@ -203,7 +223,7 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
 
   if (finishing) return (
     <div className="wrap">
-      <h1>Finish session</h1>{error && <div className="flag" role="alert">{error}</div>}
+      <h1>Finish session</h1><button className="btn ghost" disabled={busy} onClick={addSet}>+ Add another set · {ex.name}</button>{error && <div className="flag" role="alert">{error}</div>}
       <p className="sub">{day.name} · {doneSets} of {totalSets} sets logged</p>
       <div className="card">
         <div className="field">
@@ -281,6 +301,7 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
           <span className="tier" style={{ background: tier.color, color: tier.text }}>{tier.label}</span>
         </div>
 
+        <button className="chip" disabled={busy} onClick={addSet}>+ Add set to this workout</button>
         {/* set chips — tap any to review or fix */}
         <div className="set-chips">
           {Array.from({ length: cur.sets }, (_, i) => i + 1).map(n => {
@@ -349,14 +370,10 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
           <div className="cue" style={{ borderLeftColor: 'var(--accent)', marginTop: 10 }}>
             <strong>S-tier — go ham:</strong> {ex.go_ham_tips}</div>)}
 
-        {setNo === cur.sets && !isHold && (
+        {!isHold && (
           <div className="field" style={{ marginTop: 16 }}>
-            <label>Reps in reserve on this last set</label>
-            <div className="grid3" style={{ gridTemplateColumns: 'repeat(5,1fr)' }}>
-              {[0,1,2,3,4].map(n => (
-                <button key={n} className={'btn ' + (rir === n ? '' : 'ghost')}
-                  style={{ padding: 12 }} onClick={() => setRir(n)}>{n}</button>))}
-            </div>
+            <label>Reps in reserve</label>
+            <div className="step rir-step"><button aria-label="Less RIR" disabled={busy || rir<=0} onClick={()=>setRir(n=>Math.max(0,Number(n)-1))}>−</button><div className="step-readout"><input aria-label="Reps in reserve" inputMode="numeric" value={rir} disabled={busy} onChange={e=>setRir(e.target.value)}/></div><button aria-label="More RIR" disabled={busy || rir>=10} onClick={()=>setRir(n=>Math.min(10,Number(n)+1))}>+</button></div>
             <div className="muted" style={{ marginTop: 8 }}>
               If the last rep did not visibly slow down, you had more than 2 left.
             </div>

@@ -206,8 +206,8 @@ test('gym read failures cannot create a replacement session',async()=>{
   assert.match(text(mounted.toJSON()),/Simulated unavailable connection/);assert.equal(db.writes.length,0);
   assert.equal(buttons(mounted).some(b=>text(b).includes('Log set')),false);
 });
-test('body opens empty, accepts measurements and collapses only with both weights and a photo',async()=>{
-  const db=database({daily_log:[{id:'body',user_id:'test-user',date:date(),weight_am_kg:71,weight_pm_kg:null,waist_cm:83}],photos:[{id:'photo',user_id:'test-user',date:date(),slot:'am',storage_path:'test'}]});
+test('body opens empty, accepts measurements and collapses only with both weights and all six photo views',async()=>{
+  const db=database({daily_log:[{id:'body',user_id:'test-user',date:date(),weight_am_kg:71,weight_pm_kg:null,waist_cm:83}],photos:['am','pm'].flatMap(slot=>['front','back','arm'].map(pose=>({id:slot+pose,user_id:'test-user',date:date(),slot,pose,storage_path:'test'})))});
   db.storage={from:()=>({createSignedUrl:async()=>({data:{signedUrl:'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=='}})})};
   const Body=mountSource('components/BodyCard.js',db);
   await act(async()=>{mounted=create(React.createElement(Body,{userId:'test-user'}));});await flush();
@@ -263,7 +263,7 @@ test('body upload retry reuses the uploaded object and creates one photo row',as
   const db=database({daily_log:[],photos:[]},q=>fail && q.table==='photos' && q.op!=='select');
   db.storage={from:()=>({upload:async()=>{uploads++;return {data:{},error:null};},createSignedUrl:async()=>({data:{signedUrl:'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=='}})})};
   const Body=mountSource('components/BodyCard.js',db);await act(async()=>{mounted=create(React.createElement(Body,{userId:'test-user'}));});await flush();
-  const change=()=>mounted.root.findByProps({'aria-label':'AM photo'}).props.onChange({target:{files:[{name:'test.png',size:100,lastModified:1,type:'image/png'}],value:'test.png'}});
+  const change=()=>mounted.root.findByProps({'aria-label':'AM front upload'}).props.onChange({target:{files:[{name:'test.png',size:100,lastModified:1,type:'image/png'}],value:'test.png'}});
   await act(change);assert.equal(db.tables.photos.length,0);assert.equal(uploads,1);fail=false;
   await act(change);assert.equal(db.tables.photos.length,1);assert.equal(uploads,1);assert.equal(db.tables.photos[0].user_id,'test-user');
 });
@@ -353,7 +353,7 @@ test('photo comparison signs selected private paths and keeps missing measuremen
 
 
 test('Progress renders recorded trends and separates pain movements without hardcoded markers',async()=>{
- const uid='test-user';const db=database({runs:[{id:'a',user_id:uid,date:'2026-09-01',run_type:'long',duration_min:60,distance_km:8,hr_avg:130},{id:'b',user_id:uid,date:date(),run_type:'long',duration_min:70,distance_km:10,hr_avg:132}],pain_logs:[{id:'p',user_id:uid,date:date(),site:'left_ankle_extensor',movement:'eversion',score:0}],daily_log:[],photos:[],set_logs:[],v_load_weekly:[],user_settings:[]});db.rpc=async()=>({data:[],error:null});const Progress=mountSource('components/Progress.js',db);await act(async()=>{mounted=create(React.createElement(Progress,{userId:uid}));});await flush();const output=text(mounted.toJSON());assert.match(output,/2\s+recorded runs/);assert.match(output,/Cold pain · dorsiflexion/);assert.match(output,/Cold pain · eversion/);assert.doesNotMatch(output,/62 →|4km →|VT2/);assert.match(output,/No photos yet/);capture('progress',mounted);
+ const uid='test-user';const db=database({runs:[{id:'a',user_id:uid,date:'2026-09-01',run_type:'long',duration_min:60,distance_km:8,hr_avg:130},{id:'b',user_id:uid,date:date(),run_type:'long',duration_min:70,distance_km:10,hr_avg:132}],pain_logs:[{id:'p',user_id:uid,date:date(),site:'left_ankle_extensor',movement:'eversion',score:0}],daily_log:[],photos:[],set_logs:[],v_load_weekly:[],user_settings:[]});db.rpc=async()=>({data:[],error:null});const Progress=mountSource('components/Progress.js',db);await act(async()=>{mounted=create(React.createElement(Progress,{userId:uid}));});await flush();const output=text(mounted.toJSON());assert.match(output,/2\s+recorded runs/);assert.match(output,/Cold pain · dorsiflexion/);assert.match(output,/Cold pain · eversion/);assert.doesNotMatch(output,/62 →|4km →|VT2/);assert.match(output,/No photos for this view yet/);capture('progress',mounted);
 });
 
 
@@ -364,4 +364,76 @@ test('Dashboard restores the week strip and recorded lift chart without writing 
  await act(async()=>{mounted=create(React.createElement(Dashboard,{userId:uid,email:'test@example.test',onWeek:d=>opened=d}));});await flush();
  assert.match(text(mounted.toJSON()),/First recorded/);assert.match(text(mounted.toJSON()),/Resume Push/);assert.equal(db.writes.length,0);
  const day=buttons(mounted).find(b=>b.props['aria-label']?.startsWith('View week containing'));await act(async()=>day.props.onClick());assert.match(opened,/^\d{4}-\d{2}-\d{2}$/);capture('dashboard',mounted);
+});
+
+
+test('daily untimed completion flows through rest to the next set and exercise',async()=>{
+ const seed=dailySeed(45,[]);seed.workout_exercises[0].sets=2;seed.workout_exercises[0].rest_seconds=30;
+ seed.workout_exercises.push({...seed.workout_exercises[0],id:'second',exercise_id:'second-ex',sets:1,hold_seconds:null,exercises:{name:'Next exercise'}});
+ const db=database(seed),Daily=mountSource('components/DailyBlock.js',db);
+ await act(async()=>{mounted=create(React.createElement(Daily,{userId:'test-user',onClose(){}}));});await flush();
+ await act(async()=>button(mounted,'Continue').props.onClick());
+ assert.equal(button(mounted,'Log completed hold 1').props.disabled,false);
+ await act(async()=>button(mounted,'Log completed hold 1').props.onClick());
+ assert.equal(db.tables.set_logs.length,1);
+ await act(async()=>button(mounted,'Skip rest').props.onClick());
+ assert.ok(button(mounted,'Log completed hold 2'));
+ await act(async()=>button(mounted,'Log completed hold 2').props.onClick());
+ await act(async()=>button(mounted,'Skip rest').props.onClick());
+ assert.match(text(mounted.toJSON()),/Next exercise/);assert.ok(button(mounted,'Log set 1'));
+ await act(async()=>button(mounted,'Log set 1').props.onClick());
+ assert.ok(db.tables.sessions[0].completed_at);assert.equal(db.tables.set_logs.length,3);
+});
+
+test('extra set survives an uncertain response and can be logged with RIR clickers',async()=>{
+ const seed=gymSeed([1,2,3]);seed.sessions[0].workout_snapshot=structuredClone(seed.workout_exercises);
+ const db=database(seed);let calls=0;
+ db.rpc=async(name,args)=>{assert.equal(name,'add_session_set');calls++;const snapshot=db.tables.sessions[0].workout_snapshot;const item=snapshot[0];if(item.sets===args.p_expected_sets)item.sets++;return calls===1?{error:{message:'Response lost'}}:{data:structuredClone(snapshot)};};
+ await mountGym(db);
+ await act(async()=>button(mounted,'Add another set').props.onClick());
+ assert.match(text(mounted.toJSON()),/Response lost/);assert.equal(db.tables.set_logs.length,3);
+ await act(async()=>button(mounted,'Add another set').props.onClick());
+ assert.ok(button(mounted,'Log set 4'));assert.equal(db.tables.sessions[0].workout_snapshot[0].sets,4);
+ await act(async()=>mounted.root.findByProps({'aria-label':'More RIR'}).props.onClick());
+ assert.equal(mounted.root.findByProps({'aria-label':'Reps in reserve'}).props.value,3);
+ await act(async()=>button(mounted,'Log set 4').props.onClick());
+ assert.equal(db.tables.set_logs.length,4);assert.equal(db.tables.set_logs.at(-1).rir,3);
+ assert.equal(db.tables.workout_exercises[0].sets,3);
+});
+
+test('six photo views expose independent camera and upload inputs and retain pose',async()=>{
+ const db=database({daily_log:[],photos:[]});db.storage={from:()=>({upload:async()=>({data:{}}),createSignedUrl:async()=>({data:{signedUrl:'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=='}})})};
+ const Body=mountSource('components/BodyCard.js',db);await act(async()=>{mounted=create(React.createElement(Body,{userId:'test-user'}));});await flush();
+ for(const slot of ['AM','PM'])for(const pose of ['front','back','arm']){
+  const camera=mounted.root.findByProps({'aria-label':`${slot} ${pose} camera`});const upload=mounted.root.findByProps({'aria-label':`${slot} ${pose} upload`});
+  assert.equal(camera.props.capture,'environment');assert.equal(upload.props.capture,undefined);
+  await act(async()=>upload.props.onChange({target:{files:[{name:'same.png',size:10,lastModified:1,type:'image/png'}],value:''}}));
+ }
+ assert.equal(db.tables.photos.length,6);assert.equal(new Set(db.tables.photos.map(p=>p.slot+':'+p.pose)).size,6);
+ capture('six-photos',mounted);
+});
+
+test('custom food deletion hides search and favourites but retains logged nutrition',async()=>{
+ const food={id:'custom',user_id:'test-user',source:'user',name:'My oats',is_favourite:true,is_archived:false,kcal:200,protein_g:10};
+ const db=database({foods:[food],meal_logs:[{id:'meal',user_id:'test-user',date:date(),meal:'snack',food_id:'custom',foods:{name:'My oats'},servings:1,kcal:200,protein_g:10}]});const Food=mountSource('components/Food.js',db);
+ await act(async()=>{mounted=create(React.createElement(Food,{userId:'test-user',onClose(){}}));});await flush();
+ await act(async()=>mounted.root.findByProps({'aria-label':'Delete custom food My oats'}).props.onClick());
+ await act(async()=>button(mounted,'Delete custom food').props.onClick());
+ assert.equal(db.tables.foods[0].is_archived,true);assert.equal(db.tables.foods[0].is_favourite,false);assert.equal(db.tables.meal_logs[0].kcal,200);assert.equal(db.tables.meal_logs[0].food_id,'custom');
+ assert.equal(mounted.root.findAllByProps({'aria-label':'Delete custom food My oats'}).length,0);
+});
+
+test('timer ring uses fractional remaining time while its number stays in seconds',async()=>{
+ const Ring=mountSource('components/Timers.js',database({}),'TimerRing');await act(async()=>{mounted=create(React.createElement(Ring,{left:30,total:60,remainingMs:29250}));});
+ const fill=mounted.root.findAllByType('circle')[1];assert.ok(Math.abs(fill.props.strokeDashoffset-2*Math.PI*104*(1-29.25/60))<0.001);assert.match(text(mounted.toJSON()),/0:30/);
+});
+
+test('photo compare changes both choices to matching views and retains legacy photos',async()=>{
+ const photos=[{id:'f1',pose:'front',slot:'am',date:'2026-09-01',storage_path:'f1'},{id:'b1',pose:'back',slot:'am',date:'2026-09-01',storage_path:'b1'},{id:'b2',pose:'back',slot:'pm',date:'2026-09-02',storage_path:'b2'},{id:'old',slot:'am',date:'2026-08-01',storage_path:'old'}];
+ const db=database({});db.storage={from:()=>({createSignedUrl:async p=>({data:{signedUrl:'https://example.test/'+p}})})};const Compare=mountSource('components/PhotoCompare.js',db);
+ await act(async()=>{mounted=create(React.createElement(Compare,{photos,daily:[]}));});await flush();
+ await act(async()=>mounted.root.findByProps({'aria-label':'Photo view'}).props.onChange({target:{value:'back'}}));await flush();
+ assert.deepEqual(mounted.root.findAllByType('select').slice(1).map(x=>x.props.value),['b1','b2']);
+ assert.ok(mounted.root.findAllByType('select').slice(1).every(x=>x.findAllByType('option').length===2));
+ await act(async()=>mounted.root.findByProps({'aria-label':'Photo view'}).props.onChange({target:{value:'legacy'}}));await flush();assert.equal(mounted.root.findAllByType('select')[1].props.value,'old');
 });

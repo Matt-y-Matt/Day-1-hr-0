@@ -26,18 +26,17 @@ export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEna
 
   useEffect(() => { (async () => {
     const s = supa();
-    const config=await s.from('user_settings').select('*').eq('user_id',userId).maybeSingle();
+    const [config,scheduleResult,dailyResult,painResult]=await Promise.all([s.from('user_settings').select('*').eq('user_id',userId).maybeSingle(),loadSchedule(userId,t,t),s.from('workout_days').select('*').eq('user_id',userId).eq('is_daily',true).eq('is_active',true),s.from('pain_logs').select('*').eq('user_id',userId).eq('date',t)]);
     if(config.error)throw config.error;const defaults={...DEFAULT_SETTINGS,...config.data};setSettings(defaults);
-    const scheduled = (await loadSchedule(userId,t,t)).filter(x=>x.status!=='skipped');
+    const scheduled = scheduleResult.filter(x=>x.status!=='skipped');
     setDays(scheduled.filter(x=>x.kind==='lift').map(x=>({...x.day,occurrence:x})));
     const p=scheduled.filter(x=>x.kind==='run').map(x=>({...x,hr_ceiling:x.hr_ceiling??defaults.hr_ceiling,hr_target_low:x.hr_target_low??defaults.hr_target_low,hr_target_high:x.hr_target_high??defaults.hr_target_high}));
     setPlan(p); setMode(p.length?'run':'lift');
-    const { data: dailyDays, error: dailyError } = await s.from('workout_days').select('*').eq('is_daily', true).eq('is_active', true);
+    const { data: dailyDays, error: dailyError } = dailyResult;
     if (dailyError) setError(dailyError.message);
     if (dailyDays?.[0]) {
       const day = dailyDays[0];
-      const { data: items, error: itemError } = await s.from('workout_exercises').select('*, exercises(*)').eq('workout_day_id',day.id);
-      const { data: sessions, error: sessionError } = await s.from('sessions').select('id').eq('workout_day_id',day.id).eq('date',t).order('started_at',{ascending:false,nullsFirst:false}).limit(1);
+      const [{data:items,error:itemError},{data:sessions,error:sessionError}]=await Promise.all([s.from('workout_exercises').select('*, exercises(*)').eq('workout_day_id',day.id),s.from('sessions').select('id').eq('workout_day_id',day.id).eq('date',t).order('started_at',{ascending:false,nullsFirst:false}).limit(1)]);
       if (itemError || sessionError) setError((itemError || sessionError).message);
       else {
         const result = sessions?.length ? await s.from('set_logs').select('*').eq('session_id',sessions[0].id) : {data:[]};
@@ -45,7 +44,7 @@ export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEna
         else setDaily({ ...sessionProgress(items || [],result.data || []), totalItems: (items || []).filter(i => i.is_enabled !== false).length });
       }
     }
-    const { data: pl, error: ple } = await s.from('pain_logs').select('*').eq('date', t);
+    const { data: pl, error: ple } = painResult;
     if (ple) setError(ple.message);
     setPain(pl || []);
     setLoading(false);
@@ -96,7 +95,7 @@ export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEna
 
       {mode === 'lift' && days.map(d => <DayCard key={d.schedule_ref||d.id} day={d} userId={userId} onWorkout={onWorkout} onStart={onStart} onSchedule={onSchedule} />)}
 
-      {!error && !(plan?.length) && days.length === 0 && (
+      {!loading && !error && !(plan?.length) && days.length === 0 && (
         <div className="card">
           <strong>Full rest day</strong>
           <p className="muted" style={{ marginTop: 8 }}>
@@ -105,8 +104,8 @@ export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEna
           </p>
         </div>
       )}
-      {!error && mode === 'run' && !plan?.length && days.length > 0 && <div className="card"><strong>No run planned today</strong><button className="btn ghost" onClick={() => setMode('lift')}>View today’s lift</button></div>}
-      {!error && mode === 'lift' && !days.length && plan?.length > 0 && <div className="card"><strong>No lift planned today</strong><button className="btn ghost" onClick={() => setMode('run')}>View today’s run</button></div>}
+      {!loading && !error && mode === 'run' && !plan?.length && days.length > 0 && <div className="card"><strong>No run planned today</strong><button className="btn ghost" onClick={() => setMode('lift')}>View today’s lift</button></div>}
+      {!loading && !error && mode === 'lift' && !days.length && plan?.length > 0 && <div className="card"><strong>No lift planned today</strong><button className="btn ghost" onClick={() => setMode('run')}>View today’s run</button></div>}
       </section>
     </div>
   );

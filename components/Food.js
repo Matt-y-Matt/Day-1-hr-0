@@ -8,7 +8,7 @@ import { supa, today } from '../lib/supabase';
 export function FoodCard({ userId, dayType, onOpen }) {
   const [data, setData] = useState(null), [error, setError] = useState('');
   useEffect(() => { let alive = true; (async () => {
-    const results = await Promise.all([supa().from('v_daily_nutrition').select('*').eq('user_id', userId).eq('date', today()).maybeSingle(), supa().from('user_settings').select('*').eq('user_id', userId).maybeSingle(), supa().from('foods').select('*').eq('is_favourite', true).order('name').limit(3)]);
+    const results = await Promise.all([supa().from('v_daily_nutrition').select('*').eq('user_id', userId).eq('date', today()).maybeSingle(), supa().from('user_settings').select('*').eq('user_id', userId).maybeSingle(), supa().from('foods').select('*').eq('is_archived',false).eq('is_favourite', true).order('name').limit(3)]);
     if (!alive) return;
     if (results.some(r => r.error)) { setError('Could not load food totals.'); return; }
     setData({ total: results[0].data || {}, settings: results[1].data || {}, favourites: results[2].data || [] });
@@ -29,9 +29,10 @@ export default function FoodLog({userId,initialFood,onClose,onChanged}){
   const [selected,setSelected]=useState(initialFood||null),[editing,setEditing]=useState(null),[servings,setServings]=useState('1'),[meal,setMeal]=useState('snack');
   const [custom,setCustom]=useState({name:'',serving_desc:'',kcal:'',protein_g:'',carbs_g:'',fat_g:'',save:false});
   const [date,setDate]=useState(today),[dayType,setDayType]=useState('easy'),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState(''),[deleteId,setDeleteId]=useState(null),[loadError,setLoadError]=useState(false),[retry,setRetry]=useState(0);
+  const [deleteFoodId,setDeleteFoodId]=useState(null);
   const lock=useRef(false),rowId=useRef(null),foodId=useRef(null);
   useEffect(()=>{let alive=true;setLoading(true);setLoadError(false);setError('');(async()=>{
-    const [f,m,s,schedule]=await Promise.all([supa().from('foods').select('*').order('name'),supa().from('meal_logs').select('*, foods(name,serving_desc)').eq('user_id',userId).eq('date',date).order('logged_at'),supa().from('user_settings').select('*').eq('user_id',userId).maybeSingle(),loadSchedule(userId,date,date)]);
+    const [f,m,s,schedule]=await Promise.all([supa().from('foods').select('*').eq('is_archived',false).order('name'),supa().from('meal_logs').select('*, foods(name,serving_desc)').eq('user_id',userId).eq('date',date).order('logged_at'),supa().from('user_settings').select('*').eq('user_id',userId).maybeSingle(),loadSchedule(userId,date,date)]);
     for(const r of [f,m,s])if(r.error)throw r.error;
     if(alive){setFoods(f.data||[]);setEntries(m.data||[]);setSettings(s.data||{});const a=schedule.filter(x=>x.status!=='skipped');setDayType(a.some(x=>x.run_type==='long')?'long':a.some(x=>x.kind==='run')&&a.some(x=>x.kind==='lift')?'run_lift':a.length?'easy':'rest');}
   })().catch(e=>{if(alive){setError(e.message);setLoadError(true);}}).finally(()=>{if(alive)setLoading(false);});return()=>{alive=false;};},[userId,date,retry]);
@@ -50,6 +51,10 @@ export default function FoodLog({userId,initialFood,onClose,onChanged}){
     }catch(e){setError(`Not saved: ${e.message}`);}finally{lock.current=false;setBusy(false);}
   }
   async function remove(row){if(lock.current)return;lock.current=true;setBusy(true);setError('');try{const r=await supa().from('meal_logs').delete().eq('id',row.id).eq('user_id',userId).select('id');if(r.error)throw r.error;if(!r.data?.length)throw new Error('Entry unavailable. Reopen the food log.');setEntries(old=>old.filter(x=>x.id!==row.id));setDeleteId(null);onChanged?.();}catch(e){setError(e.message);}finally{lock.current=false;setBusy(false);}}
+  async function removeFood(food){
+    if(lock.current)return;lock.current=true;setBusy(true);setError('');
+    try{const r=await supa().from('foods').update({is_archived:true,is_favourite:false}).eq('id',food.id).eq('user_id',userId).eq('source','user').select('id');if(r.error)throw r.error;if(!r.data?.length)throw new Error('Custom food unavailable. Reload and retry.');setFoods(old=>old.filter(x=>x.id!==food.id));setDeleteFoodId(null);setMessage('Custom food deleted. Previous food logs are kept.');onChanged?.();}catch(e){setError(e.message);}finally{lock.current=false;setBusy(false);}
+  }
   const total=nutritionTotal(entries),target=settings[`kcal_${dayType}`]??({rest:1800,easy:2000,run_lift:2300,long:2700}[dayType]);
   const results=foods.filter(f=>f.name.toLowerCase().includes(query.trim().toLowerCase()));
   return <div className="wrap logging-screen food-screen"><div className="row"><h1>Food log</h1><button className="btn ghost compact" disabled={busy} onClick={onClose}>‹ Back</button></div>
@@ -64,6 +69,7 @@ export default function FoodLog({userId,initialFood,onClose,onChanged}){
       {query&&<button className="chip" onClick={()=>setQuery('')}>Clear search</button>}<p className="muted">{query.trim()?`${results.length} results${results.length>50?' · showing first 50; refine your search':''}`:`Search ${foods.length} foods, or add a custom food.`}</p>
       {(query.trim()?results.slice(0,50):[]).map(f=><button className="food-result" key={f.id} onClick={()=>choose(f)}><strong>{f.name}{f.is_local?' · local':''}</strong><small>{f.serving_desc} · {f.kcal} kcal · {f.protein_g}g P</small></button>)}
       <button className="btn ghost" onClick={()=>choose({custom:true})}>+ Custom food</button>
+      <details className="card"><summary>My custom foods</summary>{foods.filter(f=>f.user_id===userId&&f.source==='user').map(f=><div className="custom-food-row" key={f.id}><div className="row"><strong>{f.name}</strong><button className="chip" disabled={busy} aria-label={`Delete custom food ${f.name}`} onClick={()=>setDeleteFoodId(f.id)}>Delete</button></div>{deleteFoodId===f.id&&<><p className="muted">Remove from your foods? Previous logs will stay.</p><div className="row"><button className="btn ghost" disabled={busy} onClick={()=>removeFood(f)}>Delete custom food</button><button className="chip" disabled={busy} onClick={()=>setDeleteFoodId(null)}>Keep</button></div></>}</div>)}</details>
       <h2>Logged {date===today()?'today':date}</h2>{MEALS.map(m=>{const rows=entries.filter(r=>r.meal===m),sum=nutritionTotal(rows);return <section className="card" key={m}><div className="row"><strong>{m}</strong><small>{sum.kcal} kcal · {sum.protein_g}g P</small></div>{!rows.length&&<p className="muted">Nothing logged.</p>}{rows.map(r=><div className="meal-entry" key={r.id}><button className="food-result" onClick={()=>choose({name:r.custom_name||r.foods?.name||'Food',custom:!r.food_id,serving_desc:r.foods?.serving_desc},r)}><strong>{r.custom_name||r.foods?.name||'Food'}</strong><small>{r.servings} serving(s) · {r.kcal} kcal · {r.protein_g}g P · Edit</small></button>{deleteId===r.id?<div className="row"><button className="btn ghost" disabled={busy} onClick={()=>remove(r)}>Confirm delete</button><button className="chip" disabled={busy} onClick={()=>setDeleteId(null)}>Keep</button></div>:<button className="chip" disabled={busy} aria-label={`Delete ${r.custom_name||r.foods?.name||'food'}`} onClick={()=>setDeleteId(r.id)}>Delete</button>}</div>)}<button className="btn ghost" onClick={()=>{setMeal(m);setQuery('');setMessage(`Choose a food for ${m}.`);window.scrollTo?.(0,0);}}>+ Add to {m}</button></section>;})}
     </>}
   </div>;
