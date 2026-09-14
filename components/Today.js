@@ -103,6 +103,7 @@ function DayCard({ day, onStart }) {
 
   const live = items.filter(i => i.is_enabled);
   const off = items.filter(i => !i.is_enabled);
+  const missing = items.filter(i => !i.exercises).length;
 
   return (
     <div className="card">
@@ -112,12 +113,21 @@ function DayCard({ day, onStart }) {
       </div>
       <div style={{ marginTop: 12 }}>
         {live.map(i => {
-          const tr = TIER[i.exercises.priority_tier] || TIER.B;
+          // exercises embeds as null when the row points at an exercise this
+          // account cannot see under RLS. Render it, don't die on it.
+          const ex = i.exercises;
+          const tr = (ex && TIER[ex.priority_tier]) || TIER.B;
+          if (!ex) return (
+            <div key={i.id} className="row" style={{ marginBottom: 7, justifyContent: 'flex-start' }}>
+              <span className="tier" style={{ background: 'var(--inset-border)', color: 'var(--dim)' }}>?</span>
+              <span className="muted" style={{ fontSize: 14, flex: 1 }}>Exercise unavailable on this account</span>
+            </div>
+          );
           return (
             <div key={i.id} className="row" style={{ marginBottom: 7, justifyContent: 'flex-start' }}>
               <span className="tier" style={{ background: tr.color, color: tr.text }}>{tr.label}</span>
-              <span style={{ fontSize: 14, flex: 1 }}>{i.exercises.name}
-                {i.exercises.load_unit === 'per_hand' &&
+              <span style={{ fontSize: 14, flex: 1 }}>{ex.name}
+                {ex.load_unit === 'per_hand' &&
                   <span className="muted" style={{ fontSize: 11 }}> · per hand</span>}</span>
               <span className="muted">
                 {i.sets}×{i.hold_seconds ? i.hold_seconds + 's' : (i.rep_min === i.rep_max ? i.rep_min : `${i.rep_min}–${i.rep_max}`)}
@@ -128,9 +138,16 @@ function DayCard({ day, onStart }) {
         {off.map(i => (
           <div key={i.id} className="row disabled" style={{ marginBottom: 7, justifyContent: 'flex-start' }}>
             <span className="tier" style={{ background: 'var(--inset-border)' }}>—</span>
-            <span style={{ fontSize: 14, flex: 1, textDecoration: 'line-through' }}>{i.exercises.name}</span>
+            <span style={{ fontSize: 14, flex: 1, textDecoration: 'line-through' }}>
+              {i.exercises ? i.exercises.name : 'Exercise unavailable on this account'}</span>
           </div>
         ))}
+        {missing > 0 && (
+          <div className="flag" style={{ marginTop: 10 }}>
+            {missing} of {items.length} exercises on this day are not readable by the account you are
+            signed in as. The workout is incomplete until the programme data is consolidated.
+          </div>
+        )}
       </div>
       {off.length > 0 && <div className="flag" style={{ marginTop: 10 }}>{off[0].disabled_reason}</div>}
       {open && (

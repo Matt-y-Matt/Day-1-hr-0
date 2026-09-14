@@ -21,13 +21,19 @@ export default function Session({ day, onExit }) {
   const [gLoad, setGLoad] = useState('');
   const [gTe, setGTe] = useState('');
   const [loading, setLoading] = useState(true);
+  const [skipped, setSkipped] = useState(0);
 
   // ---- load or RESUME ----
   useEffect(() => { (async () => {
     const s = supa();
     const { data: we } = await s.from('workout_exercises')
       .select('*, exercises(*)').eq('workout_day_id', day.id).order('order_index');
-    const live = (we || []).filter(x => x.is_enabled);
+    // Drop rows whose exercises embed came back null — they point at an exercise
+    // this account cannot read under RLS. Keeping them would crash every render
+    // below, which all assume cur.exercises is present.
+    const all = (we || []).filter(x => x.is_enabled);
+    const live = all.filter(x => x.exercises);
+    setSkipped(all.length - live.length);
     setItems(live);
 
     const { data: lp } = await s.from('v_last_performance').select('*');
@@ -214,6 +220,13 @@ export default function Session({ day, onExit }) {
       <div className="muted" style={{ marginBottom: 12, fontSize: 12 }}>
         Everything is saved as you go. Pause and come back any time.
       </div>
+
+      {skipped > 0 && (
+        <div className="flag">
+          {skipped} exercise{skipped === 1 ? '' : 's'} skipped — not readable by the account you are
+          signed in as. This session is incomplete.
+        </div>
+      )}
 
       {resting > 0 && (
         <>
