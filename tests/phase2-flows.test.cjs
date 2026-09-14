@@ -16,6 +16,7 @@ function database(seed, fail = () => false) {
     const q = { table, op: 'select', filters: [], body: null };
     const b = {
       select() { return b; }, eq(k,v) { q.filters.push(r=>r[k]===v); return b; },
+      in(k,values) { q.filters.push(r=>values.includes(r[k])); return b; }, range(a,z) { q.range=[a,z]; return b; },
       gte(k,v) { q.filters.push(r=>r[k]>=v); return b; }, lte(k,v) { q.filters.push(r=>r[k]<=v); return b; },
       not(k,op,v) { q.filters.push(r=>r[k]!=v); return b; },
       is(k,v) { q.filters.push(r=>r[k]===v); return b; }, order() { return b; }, limit(n) { q.limit=n; return b; },
@@ -41,6 +42,7 @@ function database(seed, fail = () => false) {
           } else if (q.op==='update') rows.forEach(r=>Object.assign(r,q.body));
           else if (q.op==='delete') tables[table]=tables[table].filter(r=>!rows.includes(r));
           if(q.limit) rows=rows.slice(0,q.limit);
+          if(q.range) rows=rows.slice(q.range[0],q.range[1]+1);
           return {data:structuredClone(q.single?(rows[0]||null):rows),count:rows.length,error:null};
         }).then(resolve,reject);
       }
@@ -48,7 +50,7 @@ function database(seed, fail = () => false) {
   }};
 }
 
-function mountSource(file, db) {
+function mountSource(file, db, exportName='default') {
   const cache=new Map();
   function load(filename) {
     if(filename.endsWith('.css')) return {};
@@ -66,7 +68,7 @@ function mountSource(file, db) {
     const result=swc.transformSync(fs.readFileSync(filename,'utf8'),{filename,isModule:true,jsc:{parser:{syntax:'ecmascript',jsx:true},target:'es2020',transform:{react:{runtime:'automatic'}}},module:{type:'commonjs'}});
     mod._compile(result.code,filename); return mod.exports;
   }
-  return load(path.join(root,file)).default;
+  return load(path.join(root,file))[exportName];
 }
 const text = n => typeof n==='string'?n:!n?'':(n.children||[]).map(text).join(' ');
 const buttons = tree => tree.root.findAllByType('button');
@@ -229,9 +231,9 @@ test('Week renders all seven days and two Friday pills, and performs no writes',
 });
 function capture(name, tree) {
   if (!process.env.PHASE3_CAPTURE) return;
-  const render=n=>typeof n==='string'?n:!n?null:React.createElement(n.type,{...Object.fromEntries(Object.entries(n.props).filter(([k])=>!k.startsWith('on'))),...(n.type==='input' && n.props.value != null ? {readOnly:true}: {})},...(n.children||[]).map(render));
+  const render=n=>typeof n==='string'?n:!n?null:React.createElement(n.type,{...Object.fromEntries(Object.entries(n.props).filter(([k])=>!k.startsWith('on'))),...(['input','textarea','select'].includes(n.type) && n.props.value != null ? {readOnly:true,onChange:()=>{}}: {})},...(n.children||[]).map(render));
   const markup=require('react-dom/server').renderToStaticMarkup(render(tree.toJSON()));
-  const css=['app/globals.css','components/phase2-timers.css','components/phase2-dashboard.css','components/phase3.css','components/phase4.css'].map(f=>fs.readFileSync(path.join(root,f),'utf8')).join('\n');
+  const css=['app/globals.css','components/phase2-timers.css','components/phase2-dashboard.css','components/phase3.css','components/phase4.css','components/phase5.css'].map(f=>fs.readFileSync(path.join(root,f),'utf8')).join('\n');
   const dir=path.join(root,'..','artifacts','phase3-preview');fs.mkdirSync(dir,{recursive:true});
   fs.writeFileSync(path.join(dir,`${name}.html`),`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Phase 3 ${name} · synthetic test data</title><style>:root{--font-sans:Arial,sans-serif;--font-mono:monospace}${css}</style>${markup}`);
 }
@@ -285,4 +287,44 @@ test('schedule move requires explicit swap or stack and retry preserves request 
  await act(async()=>button(mounted,'Save change').props.onClick());assert.equal(closed,0);assert.match(text(mounted.toJSON()),/Connection interrupted/);
  await act(async()=>button(mounted,'Save change').props.onClick());assert.equal(closed,1);assert.equal(changed,1);assert.equal(calls[0].p_changes.length,2);assert.equal(calls[0].p_request_id,calls[1].p_request_id);assert.equal(calls[0].p_changes[1].to_date,date());
  capture('schedule-move',mounted);
+});
+
+
+test('commute opens without writing, keeps failed input, and saves a trip once',async()=>{
+ let fail=true,closed=0;const db=database({runs:[]},q=>fail&&q.op!=='select');const Commute=mountSource('components/Commute.js',db,'CommuteLog');
+ await act(async()=>{mounted=create(React.createElement(Commute,{userId:'test-user',direction:'to_work',onClose:()=>closed++}));});await flush();assert.equal(db.writes.length,0);
+ const numeric=mounted.root.findAllByType('input').filter(x=>x.props.inputMode==='decimal');
+ await act(async()=>{numeric[0].props.onChange({target:{value:'8.4'}});numeric[1].props.onChange({target:{value:'27'}});});
+ await act(async()=>button(mounted,'Save trip').props.onClick());assert.equal(closed,0);assert.match(text(mounted.toJSON()),/Not saved/);assert.equal(numeric[0].props.value,'8.4');
+ fail=false;const save=button(mounted,'Save trip').props.onClick;await act(async()=>{await Promise.all([save(),save()]);});assert.equal(db.tables.runs.length,1);assert.equal(db.tables.runs[0].duration_min,27);assert.equal(db.tables.runs[0].user_id,'test-user');assert.equal(closed,1);capture('commute',mounted);
+});
+
+test('custom food is reusable and meal retries do not duplicate saved foods',async()=>{
+ let fail=true;const db=database({foods:[],meal_logs:[],user_settings:[],run_plan:[],workout_days:[],lift_schedule:[]},q=>fail&&q.table==='meal_logs'&&q.op!=='select');const Food=mountSource('components/Food.js',db);
+ await act(async()=>{mounted=create(React.createElement(Food,{userId:'test-user',initialFood:{custom:true},onClose(){}}));});await flush();
+ const inputs=mounted.root.findAllByType('input');const values=['Rice bowl','1 bowl','550','22','',''];await act(async()=>{inputs.filter(x=>!x.props.type&&!x.props['aria-label']).forEach((x,i)=>x.props.onChange({target:{value:values[i]}}));mounted.root.findByProps({type:'checkbox'}).props.onChange({target:{checked:true}});});
+ await act(async()=>button(mounted,'Add to snack').props.onClick());assert.equal(db.tables.foods.length,1);assert.equal(db.tables.meal_logs.length,0);assert.match(text(mounted.toJSON()),/Not saved/);
+ fail=false;await act(async()=>button(mounted,'Add to snack').props.onClick());assert.equal(db.tables.foods.length,1);assert.equal(db.tables.meal_logs.length,1);assert.equal(db.tables.meal_logs[0].food_id,db.tables.foods[0].id);assert.equal(db.tables.meal_logs[0].carbs_g,null);capture('food',mounted);
+});
+
+test('diary preserves missing pain versus zero and retains failed check-in fields',async()=>{
+ const db=database({daily_log:[{user_id:'test-user',date:date(),weight_am_kg:70}],pain_logs:[{id:'p',user_id:'test-user',date:date(),site:'left_ankle_extensor',movement:'eversion',score:0}],sessions:[],runs:[],v_daily_nutrition:[]});let args;db.rpc=async(n,a)=>{args=a;return {error:{message:'Offline'}};};const Diary=mountSource('components/Diary.js',db);
+ await act(async()=>{mounted=create(React.createElement(Diary,{userId:'test-user'}));});await flush();assert.match(text(mounted.toJSON()),/dorsiflexion.*—/);assert.match(text(mounted.toJSON()),/eversion.*0/);
+ const inputs=mounted.root.findAllByType('input').filter(x=>x.props.inputMode==='decimal');await act(async()=>inputs[0].props.onChange({target:{value:'7.5'}}));await act(async()=>button(mounted,'Save diary').props.onClick());assert.equal(args.p_daily.sleep_hours,7.5);assert.equal(args.p_daily.resting_hr,null);assert.equal(args.p_daily.weight_am_kg,undefined);assert.equal(inputs[0].props.value,'7.5');assert.match(text(mounted.toJSON()),/Not saved: Offline/);capture('diary',mounted);
+});
+
+test('export read failure cannot copy an incomplete report',async()=>{
+ const db=database({},q=>q.table==='meal_logs');let copied=false;Object.defineProperty(global,'navigator',{value:{clipboard:{writeText:async()=>{copied=true;}}},configurable:true});const Export=mountSource('components/ExportPanel.js',db);
+ await act(async()=>{mounted=create(React.createElement(Export,{userId:'test-user'}));});await act(async()=>button(mounted,'Build & copy').props.onClick());assert.equal(copied,false);assert.match(text(mounted.toJSON()),/Export failed/);assert.equal(mounted.root.findAllByType('textarea').length,0);delete global.navigator;
+});
+
+
+test('food serving edits update one row and deletion refreshes totals only after confirmation',async()=>{
+ const row={id:'meal',user_id:'test-user',date:date(),meal:'lunch',custom_name:'Eggs',servings:1,kcal:140,protein_g:13,nutrient_basis:{kcal:140,protein_g:13},foods:null};const db=database({foods:[],meal_logs:[row],user_settings:[],run_plan:[],workout_days:[],lift_schedule:[]});const Food=mountSource('components/Food.js',db);
+ await act(async()=>{mounted=create(React.createElement(Food,{userId:'test-user',onClose(){}}));});await flush();await act(async()=>button(mounted,'Eggs 1 serving').props.onClick());await act(async()=>mounted.root.findByProps({'aria-label':'Servings'}).props.onChange({target:{value:'2'}}));await act(async()=>button(mounted,'Update food').props.onClick());assert.equal(db.tables.meal_logs.length,1);assert.equal(db.tables.meal_logs[0].kcal,280);
+ await act(async()=>mounted.root.findByProps({'aria-label':'Delete Eggs'}).props.onClick());assert.equal(db.tables.meal_logs.length,1);await act(async()=>button(mounted,'Confirm delete').props.onClick());assert.equal(db.tables.meal_logs.length,0);assert.match(text(mounted.toJSON()),/0\s+\/\s+1800\s+kcal/);
+});
+
+test('export pagination fetches beyond the API first page',async()=>{
+ const allRows=mountSource('lib/export-client.js',{},'allRows');const rows=Array.from({length:1001},(_,i)=>({id:i}));let pages=0;const result=await allRows(()=>({range:async(a,z)=>{pages++;return {data:rows.slice(a,z+1),error:null};}}));assert.equal(result.length,1001);assert.equal(pages,3);
 });

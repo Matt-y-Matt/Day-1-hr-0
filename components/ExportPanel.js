@@ -1,100 +1,12 @@
 'use client';
-import { useState } from 'react';
-import { supa, fmtDate, today } from '../lib/supabase';
-
-export default function ExportPanel() {
-  const [range, setRange] = useState(7);
-  const [txt, setTxt] = useState('');
-  const [msg, setMsg] = useState('');
-
-  async function build() {
-    const s = supa();
-    const from = new Date(); from.setDate(from.getDate() - range);
-    const f = from.toLocaleDateString('en-CA');
-    const results = await Promise.all([
-      s.from('runs').select('*').gte('date', f).order('date'),
-      s.from('pain_logs').select('*').gte('date', f).order('date'),
-      s.from('sessions').select('*, workout_days(name)').gte('date', f).order('date'),
-      s.from('daily_log').select('*').gte('date', f).order('date'),
-      s.from('plan_changes').select('*').gte('date', f).order('created_at'),
-    ]);
-    if(results.some(r=>r.error)){setMsg('Export failed: '+results.find(r=>r.error).error.message);return;}
-    const [{data:runs},{data:pain},{data:sess},{data:daily},{data:changes}]=results;
-    const ids = (sess || []).map(x => x.id);
-    let logs = [];
-    if (ids.length) {
-      const { data } = await s.from('set_logs').select('*, exercises(name,load_unit)').in('session_id', ids);
-      logs = data || [];
-    }
-
-    let o = `## Training export — last ${range} days (to ${fmtDate(today())})\n\n`;
-
-    o += `### Programme changes\n`;
-    (changes||[]).forEach(c=>o+=`- ${c.date}: ${c.session_kind} ${c.action}, ${c.from_date} → ${c.to_date}, ${c.from_value??'—'} → ${c.to_value??'—'} min; reason: ${c.reason||'—'}${c.note?' · '+c.note:''}\n`);
-    o += `\n`;
-    o += `### Runs\n`;
-    if (runs?.length) {
-      o += `| Date | Type | Min | Km | HR avg/max | <135 | Cad | °C | Felt |\n|---|---|---|---|---|---|---|---|---|\n`;
-      runs.forEach(r => o += `| ${fmtDate(r.date)} | ${r.run_type} | ${r.duration_min ?? '—'} | ${r.distance_km ?? '—'} | ${r.hr_avg ?? '—'}/${r.hr_max ?? '—'} | ${r.min_under_135 ?? '—'} | ${r.cadence_avg ?? '—'} | ${r.temp_c ?? '—'} | ${r.feel_1_5 ?? '—'} |\n`);
-      runs.filter(r => r.notes).forEach(r => o += `- ${fmtDate(r.date)}: ${r.notes}\n`);
-    } else o += `None logged.\n`;
-
-    o += `\n### Pain\n`;
-    if (pain?.length) {
-      o += `| Date | Site | Movement | Score |\n|---|---|---|---|\n`;
-      pain.forEach(p => o += `| ${fmtDate(p.date)} | ${p.site} | ${p.movement ?? '—'} | ${p.score} |\n`);
-    } else o += `None logged.\n`;
-
-    o += `\n### Lifting\n`;
-    if (sess?.length) {
-      sess.filter(x => x.completed_at).forEach(x => {
-        o += `\n**${fmtDate(x.date)} — ${x.workout_days?.name}** (felt ${x.feel_1_5 ?? '—'}/5)\n`;
-        const mine = logs.filter(l => l.session_id === x.id);
-        const byEx = {};
-        mine.forEach(l => {
-          const u = l.exercises?.load_unit;
-          const suffix = u === 'per_hand' ? ' [per hand]' : u === 'added' ? ' [added to BW]'
-            : u === 'stack' ? ' [stack]' : '';
-          (byEx[(l.exercises?.name || '?') + suffix] ||= []).push(l);
-        });
-        Object.entries(byEx).forEach(([n, ls]) => {
-          const parts = ls.sort((a, b) => a.set_number - b.set_number)
-            .map(l => l.hold_seconds ? `${l.hold_seconds}s` : `${l.reps}×${l.weight_kg ?? 0}kg`);
-          const rir = ls.find(l => l.rir != null);
-          o += `- ${n}: ${parts.join(', ')}${rir ? ` (RIR ${rir.rir})` : ''}\n`;
-        });
-        if (x.session_note) o += `  _${x.session_note}_\n`;
-      });
-    } else o += `None logged.\n`;
-
-    if (daily?.length) {
-      o += `\n### Daily\n| Date | Wt AM | Wt PM | Cal | Protein | RHR | Sleep |\n|---|---|---|---|---|---|---|\n`;
-      daily.forEach(d => o += `| ${fmtDate(d.date)} | ${d.weight_am_kg ?? '—'} | ${d.weight_pm_kg ?? '—'} | ${d.calories ?? '—'} | ${d.protein_g ?? '—'} | ${d.resting_hr ?? '—'} | ${d.sleep_hours ?? '—'} |\n`);
-    }
-
-    const clean = (pain || []).filter(p => Number(p.score) === 0).length;
-    o += `\n### Flags\n- ${(sess || []).filter(x => x.completed_at).length} lifting sessions, ${(runs || []).length} runs\n`;
-    o += `- ${clean} of ${(pain || []).length} pain readings clean\n`;
-
-    setTxt(o);
-    try { await navigator.clipboard.writeText(o); setMsg('Copied. Paste it straight into chat.'); }
-    catch { setMsg('Built — select and copy below.'); }
-    setTimeout(() => setMsg(''), 4000);
-  }
-
-  return (
-    <div className="wrap">
-      <h1>Export</h1>
-      <p className="sub">One tap, then paste into chat. No re-explaining.</p>
-      <div className="grid3" style={{ marginBottom: 14 }}>
-        {[{ n: 'Day', v: 1 }, { n: 'Week', v: 7 }, { n: 'Month', v: 30 }].map(r => (
-          <button key={r.v} className={'btn ' + (range === r.v ? '' : 'ghost')}
-            style={{ padding: 13 }} onClick={() => setRange(r.v)}>{r.n}</button>
-        ))}
-      </div>
-      <button className="btn" onClick={build}>Build & copy</button>
-      {msg && <div className="flag ok" style={{ marginTop: 12 }}>{msg}</div>}
-      {txt && <pre style={{ marginTop: 14 }}>{txt}</pre>}
-    </div>
-  );
+import {useRef,useState} from 'react';
+import {today} from '../lib/supabase';
+import {exportDates,exportMarkdown} from '../lib/export.mjs';
+import {loadExport} from '../lib/export-client';
+export default function ExportPanel({userId}){
+ const [range,setRange]=useState(7),[end,setEnd]=useState(today),[txt,setTxt]=useState(''),[message,setMessage]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false);const lock=useRef(false);
+ const dates=exportDates(end,range);
+ async function build(){if(lock.current)return;lock.current=true;setBusy(true);setError('');setMessage('');setTxt('');try{const data=await loadExport(userId,dates.start,dates.end),output=exportMarkdown(data,dates.start,dates.end);setTxt(output);try{await navigator.clipboard.writeText(output);setMessage('Copied. Ready to paste.');}catch{setMessage('Export ready. Use Copy again or select the text below.');}}catch(e){setError(`Export failed: ${e.message}`);}finally{lock.current=false;setBusy(false);}}
+ async function copy(){try{await navigator.clipboard.writeText(txt);setMessage('Copied.');}catch{setMessage('Select the text below and copy it manually.');}}
+ return <div className="wrap logging-screen"><h1>Export</h1><p className="sub">Markdown · preview here, then paste into a chat</p><fieldset disabled={busy}><div className="seg">{[[1,'Day'],[7,'Week'],[30,'Month']].map(([v,n])=><button className={range===v?'on':''} key={v} onClick={()=>{setRange(v);setTxt('');setMessage('');}}>{n}</button>)}</div><label>Ending on<input type="date" max={today()} value={end} onChange={e=>{if(e.target.value){setEnd(e.target.value);setTxt('');setMessage('');}}}/></label><p>{dates.start} → {dates.end} · {range} day{range>1?'s':''}</p><button className="btn" onClick={build}>{busy?'Building export…':'Build & copy'}</button></fieldset>{error&&<div className="flag" role="alert">{error}</div>}{message&&<p role="status">{message}</p>}{txt&&<><button className="btn ghost" onClick={copy}>Copy again</button><label>Export preview<textarea readOnly className="export-preview" value={txt} onFocus={e=>e.target.select()}/></label></>}</div>;
 }

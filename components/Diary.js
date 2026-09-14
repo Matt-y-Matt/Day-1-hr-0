@@ -1,65 +1,29 @@
 'use client';
-import { useEffect, useState } from 'react';
-import { supa, fmtDate } from '../lib/supabase';
+import {useEffect,useRef,useState} from 'react';
+import {supa,today,fmtDate} from '../lib/supabase';
+import {shiftDate,latestPain,PAIN_MOVEMENTS} from '../lib/phase2-data.mjs';
+import {numberField} from '../lib/logging.mjs';
 
-export default function Diary() {
-  const [items, setItems] = useState([]);
-  useEffect(() => { (async () => {
-    const s = supa();
-    const [{ data: sess }, { data: runs }, { data: pain }] = await Promise.all([
-      s.from('sessions').select('*, workout_days(name)').order('date', { ascending: false }).limit(60),
-      s.from('runs').select('*').order('date', { ascending: false }).limit(60),
-      s.from('pain_logs').select('*').order('date', { ascending: false }).limit(80),
-    ]);
-    const rows = [
-      ...(sess || []).filter(x => x.completed_at).map(x => ({ kind: 'lift', date: x.date, o: x })),
-      ...(runs || []).map(x => ({ kind: 'run', date: x.date, o: x })),
-    ].sort((a, b) => b.date.localeCompare(a.date));
-    const byDate = {};
-    (pain || []).forEach(p => { (byDate[p.date] ||= []).push(p); });
-    setItems(rows.map(r => ({ ...r, pain: byDate[r.date] })));
-  })(); }, []);
-
-  const FEEL = ['', 'wrecked', 'flat', 'ok', 'good', 'flying'];
-
-  return (
-    <div className="wrap">
-      <h1>Diary</h1>
-      <p className="sub">Every session, newest first</p>
-      {items.map((it, i) => (
-        <div key={i} className="card">
-          <div className="row">
-            <strong>{it.kind === 'lift' ? '🏋 ' + (it.o.workout_days?.name || 'Lift') :
-              (it.o.run_type === 'cycle' ? '🚴 ' : '🏃 ') + it.o.run_type}</strong>
-            <span className="muted">{fmtDate(it.date)}</span>
-          </div>
-          {it.kind === 'run' && (
-            <div style={{ marginTop: 9 }}>
-              {it.o.duration_min && <span className="pill">{Math.round(it.o.duration_min)} min</span>}
-              {it.o.distance_km && <span className="pill">{it.o.distance_km} km</span>}
-              {it.o.hr_avg && <span className="pill">HR {it.o.hr_avg}{it.o.hr_max ? '/' + it.o.hr_max : ''}</span>}
-              {it.o.cadence_avg && <span className="pill">cad {it.o.cadence_avg}</span>}
-              {it.o.temp_c && <span className="pill">{it.o.temp_c}°C</span>}
-              {it.o.feel_1_5 && <span className="pill">felt {FEEL[it.o.feel_1_5]}</span>}
-            </div>
-          )}
-          {it.kind === 'lift' && it.o.feel_1_5 && (
-            <div style={{ marginTop: 9 }}><span className="pill">felt {FEEL[it.o.feel_1_5]}</span></div>
-          )}
-          {(it.o.notes || it.o.session_note) && (
-            <div className="cue" style={{ borderLeftColor: 'var(--inset-border)' }}>{it.o.notes || it.o.session_note}</div>
-          )}
-          {it.pain && (
-            <div style={{ marginTop: 8 }}>
-              {it.pain.map(p => (
-                <span key={p.id} className="pill"
-                  style={{ borderColor: p.score > 0 ? '#4a2018' : '#22401b' }}>
-                  {p.movement} {p.score}/10</span>
-              ))}
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
+export default function Diary({userId,onPain,onExport,revision}){
+ const [date,setDate]=useState(today),[data,setData]=useState(null),[form,setForm]=useState({}),[sessions,setSessions]=useState([]),[error,setError]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false),[retry,setRetry]=useState(0);
+ const lock=useRef(false),loadedDate=useRef(null);
+ useEffect(()=>{let alive=true;setData(null);setError('');setMessage('');(async()=>{
+  const results=await Promise.all([supa().from('daily_log').select('*').eq('user_id',userId).eq('date',date).maybeSingle(),supa().from('pain_logs').select('*').eq('user_id',userId).gte('date',shiftDate(date,-1)).lte('date',date),supa().from('sessions').select('*, workout_days(name,is_daily)').eq('user_id',userId).eq('date',date).order('started_at'),supa().from('runs').select('*').eq('user_id',userId).eq('date',date).order('created_at'),supa().from('v_daily_nutrition').select('*').eq('user_id',userId).eq('date',date).maybeSingle()]);
+  for(const r of results)if(r.error)throw r.error;
+  if(!alive)return;const daily=results[0].data||{};if(loadedDate.current!==date){setForm(Object.fromEntries(['sleep_hours','resting_hr','legs_feel_1_10','note'].map(k=>[k,daily[k]??''])));setSessions((results[2].data||[]).map(s=>({...s,feel_1_5:s.feel_1_5??'',session_note:s.session_note||''})));loadedDate.current=date;}setData({daily,pain:results[1].data||[],runs:results[3].data||[],nutrition:results[4].data});
+ })().catch(e=>{if(alive)setError(e.message);});return()=>{alive=false;};},[userId,date,retry,revision]);
+ async function save(){if(lock.current||!data)return;lock.current=true;setBusy(true);setError('');setMessage('');try{
+   const p_daily={sleep_hours:numberField(form.sleep_hours,'sleep hours',{max:24}),resting_hr:numberField(form.resting_hr,'resting HR',{min:20,max:250,integer:true}),legs_feel_1_10:numberField(form.legs_feel_1_10,'legs feel',{min:1,max:10,integer:true}),note:form.note.trim()||null};
+   const p_sessions=sessions.map(s=>({id:s.id,feel_1_5:numberField(s.feel_1_5,'session feel',{min:1,max:5,integer:true}),session_note:s.session_note.trim()||null}));
+   const r=await supa().rpc('save_diary',{p_date:date,p_daily,p_sessions});if(r.error)throw r.error;setMessage('Diary saved.');
+ }catch(e){setError(`Not saved: ${e.message}`);}finally{lock.current=false;setBusy(false);}}
+ const current=latestPain(data?.pain||[],date),previous=latestPain(data?.pain||[],shiftDate(date,-1));
+ return <div className="wrap logging-screen"><div className="row"><h1>Diary</h1><button className="btn ghost compact" onClick={onExport}>Export</button></div><p className="sub">Evening check-in · {fmtDate(date)}</p><div className="row"><button className="chip" disabled={busy} aria-label="Previous diary day" onClick={()=>setDate(shiftDate(date,-1))}>←</button><label>Date<input type="date" max={today()} disabled={busy} value={date} onChange={e=>{if(e.target.value)setDate(e.target.value);}}/></label><button className="chip" disabled={busy||date>=today()} aria-label="Next diary day" onClick={()=>setDate(shiftDate(date,1))}>→</button></div>
+ {error&&<div className="flag" role="alert">{error}{!data&&<button className="btn ghost" onClick={()=>setRetry(x=>x+1)}>Retry</button>}</div>}{message&&<div className="flag ok" role="status">{message}</div>}{!data&&!error&&<p>Loading diary…</p>}
+ {data&&<><section className="card"><strong>Pain · scored cold</strong><div className="grid2">{PAIN_MOVEMENTS.map(m=><div key={m}><p>{m}</p><strong>{current[m]?.score??'—'} /10</strong><small> · yesterday {previous[m]?.score??'—'}</small></div>)}</div><button className="btn ghost" onClick={()=>onPain?.(date)}>Edit pain scores →</button></section>
+ <section className="card"><strong>Body & food · recorded</strong><p>AM {data.daily.weight_am_kg??'—'} kg · PM {data.daily.weight_pm_kg??'—'} kg · Waist {data.daily.waist_cm??'—'} cm</p><p>{data.nutrition?`${data.nutrition.kcal} kcal · ${data.nutrition.protein_g}g protein`:'No food entries.'}</p><small>Body measurements are entered in Today.</small></section>
+ <fieldset disabled={busy}><section className="card"><h2>Before bed</h2><label>Legs feel · 1 very tired, 10 fresh<select value={form.legs_feel_1_10} onChange={e=>setForm(f=>({...f,legs_feel_1_10:e.target.value}))}><option value="">Not recorded</option>{Array.from({length:10},(_,i)=><option key={i+1}>{i+1}</option>)}</select></label><div className="grid2">{[['sleep_hours','Sleep (hours)'],['resting_hr','Resting HR']].map(([k,label])=><label key={k}>{label}<input inputMode="decimal" value={form[k]} onChange={e=>setForm(f=>({...f,[k]:e.target.value}))}/></label>)}</div><label>Daily note<textarea placeholder="Energy, recovery, anything worth remembering…" value={form.note} onChange={e=>setForm(f=>({...f,note:e.target.value}))}/></label></section>
+ {sessions.map(s=><section className="card" key={s.id}><strong>{s.workout_days?.name||'Workout'}</strong><p className="muted">{s.completed_at?'Completed':'In progress'}</p><label>Session feel<select value={s.feel_1_5} onChange={e=>setSessions(old=>old.map(x=>x.id===s.id?{...x,feel_1_5:e.target.value}:x))}><option value="">Not recorded</option>{['Wrecked','Flat','Okay','Good','Flying'].map((n,i)=><option value={i+1} key={n}>{i+1} · {n}</option>)}</select></label><label>Session note<textarea value={s.session_note} onChange={e=>setSessions(old=>old.map(x=>x.id===s.id?{...x,session_note:e.target.value}:x))}/></label></section>)}<button className="btn" onClick={save}>{busy?'Saving…':'Save diary'}</button></fieldset>
+ <h2>Activities</h2>{data.runs.length?data.runs.map(r=><section className="card" key={r.id}><strong>{r.commute_direction?`Commute ${r.commute_direction==='to_work'?'to work':'home'} · `:''}{r.run_type}</strong><p>{r.duration_min??'—'} min · {r.distance_km??'—'} km{r.rpe!=null?` · RPE ${r.rpe}`:''}</p>{r.notes&&<p>{r.notes}</p>}</section>):<p className="muted">No activities logged on this date.</p>}</>}
+ </div>;
 }

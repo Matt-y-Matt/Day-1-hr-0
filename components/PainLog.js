@@ -12,8 +12,8 @@ function Scale({ label, value, onChange, disabled }) {
   </fieldset>;
 }
 
-export default function PainLog({ userId, onClose, onChanged }) {
-  const [date] = useState(() => localDate());
+export default function PainLog({ userId, onClose, onChanged, initialDate }) {
+  const [date] = useState(() => initialDate || localDate());
   const [rows, setRows] = useState([]);
   const [scores, setScores] = useState({ dorsiflexion: null, eversion: null });
   const [knee, setKnee] = useState(null);

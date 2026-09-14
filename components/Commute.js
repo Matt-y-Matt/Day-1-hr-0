@@ -1,137 +1,25 @@
 'use client';
-import { useEffect, useState } from 'react';
-import { supa, today } from '../lib/supabase';
+import {useEffect,useRef,useState} from 'react';
+import {supa,today,fmtDate} from '../lib/supabase';
+import {shiftDate} from '../lib/phase2-data.mjs';
+import {commuteValues} from '../lib/logging.mjs';
 
-const NUM = ['duration_min','distance_km','hr_avg','hr_max','temp_c','elevation_m',
-  'carried_load_kg','exercise_load','training_effect'];
-
-export default function Commute() {
-  const [legs, setLegs] = useState([]);
-  const [wk, setWk] = useState(null);
-  const [editing, setEditing] = useState(null);
-  const [busy, setBusy] = useState(false);
-
-  async function load() {
-    const s = supa();
-    const { data } = await s.from('v_session_intensity').select('*')
-      .eq('date', today()).not('commute_direction', 'is', null);
-    setLegs(data || []);
-    const { data: w } = await s.from('v_commute_weekly').select('*')
-      .order('week_start', { ascending: false }).limit(1);
-    setWk(w?.[0] || null);
-  }
-  useEffect(() => { load(); }, []);
-
-  async function log(dir) {
-    setBusy(true);
-    const { data } = await supa().from('runs')
-      .insert({ run_type: 'cycle', commute_direction: dir, duration_min: 22 })
-      .select().single();
-    await load(); setBusy(false);
-    if (data) setEditing(data.id);
-  }
-
-  async function remove(id) { await supa().from('runs').delete().eq('id', id); setEditing(null); load(); }
-
-  const toWork = legs.find(l => l.commute_direction === 'to_work');
-  const toHome = legs.find(l => l.commute_direction === 'to_home');
-
-  return (
-    <div className="card">
-      <div className="row">
-        <strong>Commute</strong>
-        {wk && <span className="muted">{wk.days_cycled} days this week · {wk.total_km} km</span>}
-      </div>
-
-      <div className="grid2" style={{ marginTop: 12 }}>
-        <button className={'btn ' + (toWork ? 'ghost' : '')} disabled={busy}
-          onClick={() => toWork ? setEditing(editing === toWork.id ? null : toWork.id) : log('to_work')}>
-          {toWork ? '✓ To work' : '→ To work'}
-        </button>
-        <button className={'btn ' + (toHome ? 'ghost' : '')} disabled={busy}
-          onClick={() => toHome ? setEditing(editing === toHome.id ? null : toHome.id) : log('to_home')}>
-          {toHome ? '✓ Home' : '← Home'}
-        </button>
-      </div>
-
-      {legs.map(l => (
-        <div key={l.id}>
-          <div className="row" style={{ marginTop: 12, justifyContent: 'flex-start', flexWrap: 'wrap' }}>
-            <span className="pill">{l.commute_direction === 'to_work' ? 'To work' : 'Home'}</span>
-            {l.duration_min && <span className="pill">{Math.round(l.duration_min)} min</span>}
-            {l.distance_km && <span className="pill">{l.distance_km} km</span>}
-            {l.kmh && <span className="pill">{l.kmh} km/h</span>}
-            {l.hr_avg && <span className="pill">HR {l.hr_avg}</span>}
-            {l.exercise_load ? <span className="pill">load {l.exercise_load}</span>
-              : l.est_load ? <span className="pill">load ~{l.est_load}</span> : null}
-            {l.carried_load_kg && <span className="pill">+{l.carried_load_kg} kg</span>}
-          </div>
-          {l.hr_avg && (
-            <div className="cue" style={{ borderLeftColor: l.hr_avg > 135 ? 'var(--warn)' : '#22401b' }}>
-              {l.intensity_read}
-            </div>
-          )}
-          {editing === l.id && <Detail leg={l} onSaved={() => { setEditing(null); load(); }} onDelete={() => remove(l.id)} />}
-        </div>
-      ))}
-
-      {legs.length > 0 && !editing && (
-        <div className="muted" style={{ marginTop: 10 }}>Tap a logged leg to add detail.</div>
-      )}
-    </div>
-  );
+export default function Commute({userId,onOpen}){
+ const [legs,setLegs]=useState([]),[week,setWeek]=useState(null),[error,setError]=useState(''),[loading,setLoading]=useState(true);
+ const start=shiftDate(today(),-((new Date().getDay()+6)%7));
+ useEffect(()=>{let alive=true;(async()=>{const results=await Promise.all([supa().from('runs').select('*').eq('user_id',userId).eq('date',today()).not('commute_direction','is',null).order('created_at'),supa().from('v_commute_weekly').select('*').eq('user_id',userId).eq('week_start',start).maybeSingle()]);for(const r of results)if(r.error)throw r.error;if(alive){setLegs(results[0].data||[]);setWeek(results[1].data);}})().catch(e=>{if(alive)setError(e.message);}).finally(()=>{if(alive)setLoading(false);});return()=>{alive=false;};},[userId,start]);
+ return <section className="card" aria-label="Commute"><div className="row"><strong>Commute</strong><small>{loading?'Loading…':error?'Totals unavailable':`${week?.days_cycled||0} commute days · ${week?.total_km||0} km this week`}</small></div>{error&&<p role="alert">{error}</p>}<div className="grid2">{['to_work','to_home'].map(dir=><button className="btn ghost" key={dir} onClick={()=>onOpen?.({direction:dir})}>{dir==='to_work'?'→ To work':'← Home'}</button>)}</div>{legs.map(l=><button className="food-result" key={l.id} onClick={()=>onOpen?.({direction:l.commute_direction,leg:l})}><strong>{l.commute_direction==='to_work'?'To work':'Home'} · {l.run_type==='cycle'?'Bike':l.run_type==='walk'?'Walk':'Run'}</strong><small>{l.distance_km??'—'} km · {l.duration_min??'—'} min · Edit</small></button>)}<p className="muted">Enter distance and time, then save.</p></section>;
 }
 
-const F = ({ label, ...p }) => (
-  <div className="field"><label>{label}</label><input inputMode="decimal" {...p} /></div>
-);
-
-function Detail({ leg, onSaved, onDelete }) {
-  const init = {};
-  NUM.forEach(k => init[k] = leg[k] ?? '');
-  init.rpe = leg.rpe ?? '';
-  init.notes = leg.notes ?? '';
-  const [f, setF] = useState(init);
-  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
-
-  const kmh = f.distance_km && f.duration_min
-    ? (Number(f.distance_km) / (Number(f.duration_min) / 60)).toFixed(1) : null;
-
-  async function save() {
-    const p = {};
-    NUM.forEach(k => p[k] = f[k] === '' ? null : Number(f[k]));
-    p.rpe = f.rpe === '' ? null : Number(f.rpe);
-    p.notes = f.notes || null;
-    await supa().from('runs').update(p).eq('id', leg.id);
-    onSaved();
-  }
-
-  return (
-    <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #232327' }}>
-      <div className="grid2">
-        <F label="Duration (min)" value={f.duration_min} onChange={set('duration_min')} />
-        <F label="Distance (km)" value={f.distance_km} onChange={set('distance_km')} />
-        <F label="Avg HR" value={f.hr_avg} onChange={set('hr_avg')} />
-        <F label="Max HR" value={f.hr_max} onChange={set('hr_max')} />
-        <F label="Temp °C" value={f.temp_c} onChange={set('temp_c')} />
-        <F label="Ascent (m)" value={f.elevation_m} onChange={set('elevation_m')} />
-        <F label="Backpack (kg)" value={f.carried_load_kg} onChange={set('carried_load_kg')} />
-        <F label="RPE 1–10" value={f.rpe} onChange={set('rpe')} />
-        <F label="Garmin Load" value={f.exercise_load} onChange={set('exercise_load')} />
-        <F label="Training Effect" value={f.training_effect} onChange={set('training_effect')} />
-      </div>
-
-      {kmh && <div className="muted" style={{ marginBottom: 10 }}>
-        Avg speed {kmh} km/h — derived, no need to enter it.
-      </div>}
-
-      <div className="field"><label>Notes</label>
-        <input value={f.notes} onChange={set('notes')} placeholder="stops, headwind, legs…" /></div>
-
-      <div className="row">
-        <button className="btn" onClick={save}>Save</button>
-        <button className="btn ghost" style={{ width: 'auto', padding: '15px 18px' }} onClick={onDelete}>Delete</button>
-      </div>
-    </div>
-  );
+export function CommuteLog({userId,direction,leg,onClose,onChanged}){
+ const [form,setForm]=useState(()=>({duration_min:leg?.duration_min??'',distance_km:leg?.distance_km??'',rpe:leg?.rpe??'',carried_load_kg:leg?.carried_load_kg??'',hr_avg:leg?.hr_avg??'',hr_max:leg?.hr_max??'',notes:leg?.notes||''}));
+ const [mode,setMode]=useState(leg?.run_type||'cycle'),[date,setDate]=useState(leg?.date||today()),[last,setLast]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[remove,setRemove]=useState(false);
+ const lock=useRef(false),id=useRef(leg?.id||null);
+ useEffect(()=>{let alive=true;supa().from('runs').select('*').eq('user_id',userId).eq('commute_direction',direction).eq('run_type',mode).order('date',{ascending:false}).order('created_at',{ascending:false}).limit(20).then(r=>{if(!alive)return;if(r.error)setError(`Could not load previous trip: ${r.error.message}`);else setLast((r.data||[]).find(x=>x.id!==leg?.id&&x.date<=date)||null);}).catch(e=>{if(alive)setError(e.message);});return()=>{alive=false;};},[userId,direction,mode,leg?.id,date]);
+ async function save(){if(lock.current)return;lock.current=true;setBusy(true);setError('');try{if(!date||date>today())throw new Error('Choose today or an earlier date.');const values=commuteValues(form);id.current ||= crypto.randomUUID();const r=await supa().from('runs').upsert({id:id.current,user_id:userId,date,run_type:mode,commute_direction:direction,...values},{onConflict:'id'}).select('id').single();if(r.error)throw r.error;onChanged?.();onClose();}catch(e){setError(`Not saved: ${e.message}`);}finally{lock.current=false;setBusy(false);}}
+ async function deleteTrip(){if(lock.current)return;lock.current=true;setBusy(true);setError('');try{const r=await supa().from('runs').delete().eq('id',leg.id).eq('user_id',userId).select('id');if(r.error)throw r.error;if(!r.data?.length)throw new Error('Trip unavailable. Reopen Commute.');onChanged?.();onClose();}catch(e){setError(e.message);}finally{lock.current=false;setBusy(false);}}
+ return <div className="wrap logging-screen"><div className="row"><h1>Commute {direction==='to_work'?'→ work':'→ home'}</h1><button className="btn ghost compact" disabled={busy} onClick={onClose}>‹ Back</button></div><p className="sub">{leg?'Edit trip':'New trip · saved only when you confirm'}</p>{error&&<div className="flag" role="alert">{error}</div>}<fieldset disabled={busy}><label>Date<input type="date" max={today()} value={date} onChange={e=>setDate(e.target.value)}/></label><div className="seg" aria-label="Commute mode">{[['easy','Run'],['cycle','Bike'],['walk','Walk']].map(([value,label])=><button key={value} className={mode===value?'on':''} onClick={()=>setMode(value)}>{label}</button>)}</div><div className="grid2">{[['distance_km','Distance (km)'],['duration_min','Duration (min)']].map(([k,label])=><label key={k}>{label}<input inputMode="decimal" value={form[k]} onChange={e=>setForm(f=>({...f,[k]:e.target.value}))}/></label>)}</div>
+ {last&&<button className="btn ghost" onClick={()=>setForm(f=>({...f,distance_km:last.distance_km??'',duration_min:last.duration_min??''}))}>Reuse {fmtDate(last.date)} · {last.distance_km??'—'} km in {last.duration_min??'—'} min</button>}
+ <label>Effort · RPE 1–10 (optional)<input inputMode="numeric" value={form.rpe} onChange={e=>setForm(f=>({...f,rpe:e.target.value}))}/></label><div className="grid2">{[['carried_load_kg','Backpack (kg), optional'],['hr_avg','Average HR, optional'],['hr_max','Maximum HR, optional']].map(([k,label])=><label key={k}>{label}<input inputMode="decimal" value={form[k]} onChange={e=>setForm(f=>({...f,[k]:e.target.value}))}/></label>)}</div><label>Notes<textarea value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))}/></label>
+ <button className="btn" onClick={save}>{busy?'Saving…':leg?'Update trip':'Save trip'}</button>{leg&&(remove?<div className="row"><button className="btn ghost" onClick={deleteTrip}>Confirm delete trip</button><button className="btn ghost" onClick={()=>setRemove(false)}>Keep trip</button></div>:<button className="btn ghost" onClick={()=>setRemove(true)}>Delete trip</button>)}</fieldset></div>;
 }

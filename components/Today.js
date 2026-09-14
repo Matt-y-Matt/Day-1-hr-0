@@ -9,7 +9,7 @@ import { loadSchedule } from '../lib/schedule-client';
 import { loadLabel } from '../lib/gym.mjs';
 import { latestPain, PAIN_MOVEMENTS, sessionProgress } from '../lib/phase2-data.mjs';
 
-export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEnabled, onFood, subtabs, onSchedule }) {
+export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEnabled, onFood, subtabs, onSchedule, onCommute }) {
   const [mode, setMode] = useState('run');
   const [daily, setDaily] = useState(null);
   const [days, setDays] = useState([]);
@@ -64,7 +64,7 @@ export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEna
       <button className="cockpit-row" onClick={onDaily}><span><strong>Daily · tendon + hip</strong><small>{daily ? `${daily.completeItems} of ${daily.totalItems} complete` : 'Open your daily routine'}</small></span><span>Continue →</span></button>
       <BodyCard userId={userId}/>
       <FoodCard userId={userId} dayType={plan?.some(p => p.run_type === 'long') ? 'long' : plan?.length && days.length ? 'run_lift' : plan?.length || days.length ? 'easy' : 'rest'} onOpen={onFood}/>
-      <Commute />
+      <Commute userId={userId} onOpen={onCommute}/>
       <section className="today-session" aria-label="Today’s session">
       {mode === 'run' && (plan || []).map(plan => (
         <div className="card key" key={plan.id}>
