@@ -11,12 +11,15 @@ export default function ExportPanel() {
     const s = supa();
     const from = new Date(); from.setDate(from.getDate() - range);
     const f = from.toLocaleDateString('en-CA');
-    const [{ data: runs }, { data: pain }, { data: sess }, { data: daily }] = await Promise.all([
+    const results = await Promise.all([
       s.from('runs').select('*').gte('date', f).order('date'),
       s.from('pain_logs').select('*').gte('date', f).order('date'),
       s.from('sessions').select('*, workout_days(name)').gte('date', f).order('date'),
       s.from('daily_log').select('*').gte('date', f).order('date'),
+      s.from('plan_changes').select('*').gte('date', f).order('created_at'),
     ]);
+    if(results.some(r=>r.error)){setMsg('Export failed: '+results.find(r=>r.error).error.message);return;}
+    const [{data:runs},{data:pain},{data:sess},{data:daily},{data:changes}]=results;
     const ids = (sess || []).map(x => x.id);
     let logs = [];
     if (ids.length) {
@@ -26,6 +29,9 @@ export default function ExportPanel() {
 
     let o = `## Training export — last ${range} days (to ${fmtDate(today())})\n\n`;
 
+    o += `### Programme changes\n`;
+    (changes||[]).forEach(c=>o+=`- ${c.date}: ${c.session_kind} ${c.action}, ${c.from_date} → ${c.to_date}, ${c.from_value??'—'} → ${c.to_value??'—'} min; reason: ${c.reason||'—'}${c.note?' · '+c.note:''}\n`);
+    o += `\n`;
     o += `### Runs\n`;
     if (runs?.length) {
       o += `| Date | Type | Min | Km | HR avg/max | <135 | Cad | °C | Felt |\n|---|---|---|---|---|---|---|---|---|\n`;

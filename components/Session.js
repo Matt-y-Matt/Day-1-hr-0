@@ -10,7 +10,7 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [mode, setMode] = useState('log');
-  const restPointer = `gym-rest:${userId}:${day.id}:${today()}`;
+  const restPointer = `gym-rest:${userId}:${day.schedule_ref||day.id}:${today()}`;
   const [items, setItems] = useState([]);
   const [idx, setIdx] = useState(0);
   const [setNo, setSetNo] = useState(1);
@@ -54,10 +54,11 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
     const g = {}; (sg || []).forEach(r => { g[r.exercise_id] = r; }); setSugg(g);
 
     // resume an open session from today, otherwise start one
-    const { data: open, error: openError } = await s.from('sessions').select('*')
+    const { data: allOpen, error: openError } = await s.from('sessions').select('*')
       .eq('workout_day_id', day.id).eq('date', today())
-      .order('started_at', { ascending: false, nullsFirst: false }).limit(1);
+      .order('started_at', { ascending: false, nullsFirst: false });
 
+    const open=(allOpen||[]).filter(x=>!x.schedule_ref||x.schedule_ref===day.schedule_ref);
     if (openError) throw openError;
     let sid;
     if (open?.length) {
@@ -148,8 +149,8 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
       if (!noWeight && !isHold && (weight === '' || !Number.isFinite(Number(weight)) || Number(weight) < 0)) throw new Error('Enter a valid load.');
       const db = supa(); let sid = sessionId;
       if (!sid) {
-        sid = await recordId(`gym-session:${userId}:${day.id}:${today()}`);
-        const result = await db.from('sessions').upsert({ id: sid, user_id: userId, date: today(), workout_day_id: day.id, started_at: new Date().toISOString() }, { onConflict: 'id', ignoreDuplicates: true });
+        sid = await recordId(`gym-session:${userId}:${day.schedule_ref||day.id}:${today()}`);
+        const result = await db.from('sessions').upsert({ id: sid, user_id: userId, date: today(), workout_day_id: day.id, schedule_ref: day.schedule_ref||null, started_at: new Date().toISOString() }, { onConflict: 'id', ignoreDuplicates: true });
         if (result.error) throw result.error;
         setSessionId(sid);
       }

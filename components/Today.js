@@ -5,10 +5,11 @@ import { WarmupTimer } from './Timers';
 import Commute from './Commute';
 import BodyCard from './BodyCard';
 import { FoodCard } from './Food';
+import { loadSchedule } from '../lib/schedule-client';
 import { loadLabel } from '../lib/gym.mjs';
 import { latestPain, PAIN_MOVEMENTS, sessionProgress } from '../lib/phase2-data.mjs';
 
-export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEnabled, onFood, subtabs }) {
+export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEnabled, onFood, subtabs, onSchedule }) {
   const [mode, setMode] = useState('run');
   const [daily, setDaily] = useState(null);
   const [days, setDays] = useState([]);
@@ -22,13 +23,10 @@ export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEna
 
   useEffect(() => { (async () => {
     const s = supa();
-    const { data: d, error: de } = await s.from('workout_days').select('*').eq('weekday', wd).eq('is_active', true);
-    if (de) setError(de.message);
-    setDays((d || []).filter(day => !day.is_daily && day.session_type !== 'daily'));
-    const { data: p, error: pe } = await s.from('run_plan').select('*').eq('date', t);
-    if (pe) setError(pe.message);
-    setPlan(p || []);
-    setMode(p?.length ? 'run' : 'lift');
+    const scheduled = (await loadSchedule(userId,t,t)).filter(x=>x.status!=='skipped');
+    setDays(scheduled.filter(x=>x.kind==='lift').map(x=>({...x.day,occurrence:x})));
+    const p=scheduled.filter(x=>x.kind==='run');
+    setPlan(p); setMode(p.length?'run':'lift');
     const { data: dailyDays, error: dailyError } = await s.from('workout_days').select('*').eq('is_daily', true).eq('is_active', true);
     if (dailyError) setError(dailyError.message);
     if (dailyDays?.[0]) {
@@ -87,11 +85,11 @@ export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEna
           {plan.structure_note && <div className="cue">{plan.structure_note}</div>}
           {plan.coach_note && <div className="cue" style={{ borderLeftColor: 'var(--warn)' }}>{plan.coach_note}</div>}
           <button className="btn" style={{ marginTop: 14 }}
-            onClick={() => onRun ? onRun(plan.warmup_type || 'short') : setWarm(plan.warmup_type || 'short')}>Start run · warm-up</button><p className="u-label">Garmin records the run</p>
+            onClick={() => onRun ? onRun(plan.warmup_type || 'short') : setWarm(plan.warmup_type || 'short')}>Start run · warm-up</button><p className="u-label">Garmin records the run</p><ScheduleActions item={plan} onSchedule={onSchedule}/>
         </div>
       ))}
 
-      {mode === 'lift' && days.map(d => <DayCard key={d.id} day={d} onStart={onStart} />)}
+      {mode === 'lift' && days.map(d => <DayCard key={d.schedule_ref||d.id} day={d} onStart={onStart} onSchedule={onSchedule} />)}
 
       {!error && !(plan?.length) && days.length === 0 && (
         <div className="card">
@@ -109,7 +107,7 @@ export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEna
   );
 }
 
-function DayCard({ day, onStart }) {
+function DayCard({ day, onStart, onSchedule }) {
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(null);
   useEffect(() => { (async () => {
@@ -117,8 +115,9 @@ function DayCard({ day, onStart }) {
     const { data } = await s.from('workout_exercises')
       .select('*, exercises(name,priority_tier,load_unit)').eq('workout_day_id', day.id).order('order_index');
     setItems(data || []);
-    const { data: o } = await s.from('sessions').select('id')
-      .eq('workout_day_id', day.id).eq('date', today()).is('completed_at', null).limit(1);
+    const { data: candidates } = await s.from('sessions').select('id,schedule_ref')
+      .eq('workout_day_id', day.id).eq('date', today()).is('completed_at', null);
+    const o=(candidates||[]).filter(x=>!x.schedule_ref||x.schedule_ref===day.schedule_ref);
     if (o?.length) {
       const { count } = await s.from('set_logs')
         .select('id', { count: 'exact', head: true }).eq('session_id', o[0].id);
@@ -183,6 +182,9 @@ function DayCard({ day, onStart }) {
       <button className="btn" style={{ marginTop: 12 }} onClick={() => onStart(day)}>
         {open ? `Resume ${day.name}` : `Start ${day.name}`}
       </button>
+      <ScheduleActions item={day.occurrence} onSchedule={onSchedule}/>
     </div>
   );
 }
+
+function ScheduleActions({item,onSchedule}){return item&&onSchedule?<div className="schedule-actions"><button className="btn ghost" onClick={()=>onSchedule(item,'move')}>Move to tomorrow</button><button className="btn ghost" onClick={()=>onSchedule(item,'change')}>Skip / shorten</button></div>:null;}

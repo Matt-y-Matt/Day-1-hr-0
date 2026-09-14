@@ -5,6 +5,8 @@ import Today from '../components/Today';
 import FoodLog from '../components/Food';
 import '../components/phase3.css';
 import Week from '../components/Week';
+import ScheduleEditor from '../components/ScheduleEditor';
+import '../components/phase4.css';
 import LogPanel from '../components/LogPanel';
 import Progress from '../components/Progress';
 import Diary from '../components/Diary';
@@ -138,6 +140,7 @@ function TrainingApp({ user }) {
   }
   function navigate(next) { const action = () => { setTab(next); if (next === 'dashboard') setSub('overview'); }; if (overlayRef.current) closeOverlay(action); else action(); }
   const nav = <nav className="nav" aria-label="Main navigation">{TABS.map(t => <button key={t.k} className={tab === t.k ? 'on' : ''} onClick={() => navigate(t.k)} aria-current={tab === t.k ? 'page' : undefined}><span className="ic">{t.ic}</span>{t.n}</button>)}</nav>;
+  const onSchedule = (item, initialMode='move', weekStart) => openOverlay('schedule', { item, initialMode, weekStart });
   const onPain = () => openOverlay('pain');
   const onDaily = () => openOverlay('daily');
   const onRun = type => openOverlay('warmup', { type });
@@ -147,15 +150,16 @@ function TrainingApp({ user }) {
     <main aria-hidden={!!overlay} inert={overlay ? '' : undefined}>
       {tab === 'dashboard' && <>{sub !== 'today' && subnav}
         {sub === 'overview' && <Dashboard userId={user.id} revision={revision} onPain={onPain} onDaily={onDaily} onRun={onRun} onStart={onStart} onToday={() => setSub('today')} onProgress={() => setSub('progress')}/>}
-        {sub === 'today' && <Today subtabs={subnav} onFood={food => openOverlay('food', { food })} key={revision} onStart={onStart} onPain={onPain} onDaily={onDaily} onRun={onRun} userId={user.id} beepEnabled={beepEnabled}/>}
+        {sub === 'today' && <Today onSchedule={onSchedule} subtabs={subnav} onFood={food => openOverlay('food', { food })} key={revision} onStart={onStart} onPain={onPain} onDaily={onDaily} onRun={onRun} userId={user.id} beepEnabled={beepEnabled}/>}
         {sub === 'progress' && <><div className="wrap phase2-tools"><button className="btn ghost" onClick={() => openOverlay('export')}>Export</button></div><Progress/></>}
       </>}
-      {tab === 'week' && <Week/>}
+      {tab === 'week' && <Week userId={user.id} revision={revision} onSchedule={onSchedule}/>}
       {tab === 'diary' && <><div className="wrap phase2-tools"><button className="btn ghost" onClick={onPain}>Log pain · dorsiflexion + eversion</button></div><Diary key={revision}/></>}
       {tab === 'settings' && <div className="wrap"><h1>Settings</h1><p className="sub">{BUILD}</p><div className="card"><span>{user.email}</span><label className="phase2-setting">Timer beeps<input type="checkbox" checked={beepEnabled} disabled={settingsLoading || settingsBusy} onChange={e => saveBeeps(e.target.checked)}/></label><p className="muted">{settingsLoading ? 'Loading saved preference…' : settingsBusy ? 'Saving preference…' : 'Change the beep preference for your account.'}</p></div><div className="card"><button className="btn ghost" onClick={onPain}>Pain log</button><button className="btn ghost" onClick={() => openOverlay('log')}>All logs · pain, run, body & photos</button><button className="btn ghost" onClick={() => openOverlay('export')}>Export training data</button></div><button className="btn ghost" onClick={async () => { if (!confirm('Sign out on this device?')) return; const { error } = await supa().auth.signOut(); if (error) setError(error.message); }}>Sign out</button>{error && <div className="flag" role="alert">{error}</div>}</div>}
       {nav}
     </main>
     {overlay && <div ref={dialogRef} tabIndex={-1} className="phase2-overlay" role="dialog" aria-modal="true" aria-label={overlay.name} key={overlay.token}>
+      {overlay.name === 'schedule' && <ScheduleEditor userId={user.id} item={overlay.item} initialMode={overlay.initialMode} weekStart={overlay.weekStart} onChanged={changed} onClose={() => closeOverlay()}/>}
       {overlay.name === 'food' && <FoodLog userId={user.id} initialFood={overlay.food} onChanged={changed} onClose={() => closeOverlay()}/>}
       {overlay.name === 'pain' && <PainLog userId={user.id} onClose={() => closeOverlay()} onChanged={changed}/>}
       {overlay.name === 'daily' && <DailyBlock userId={user.id} beepEnabled={beepEnabled} onClose={() => closeOverlay()} onChanged={changed}/>}

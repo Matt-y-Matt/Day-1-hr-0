@@ -231,14 +231,14 @@ function capture(name, tree) {
   if (!process.env.PHASE3_CAPTURE) return;
   const render=n=>typeof n==='string'?n:!n?null:React.createElement(n.type,{...Object.fromEntries(Object.entries(n.props).filter(([k])=>!k.startsWith('on'))),...(n.type==='input' && n.props.value != null ? {readOnly:true}: {})},...(n.children||[]).map(render));
   const markup=require('react-dom/server').renderToStaticMarkup(render(tree.toJSON()));
-  const css=['app/globals.css','components/phase2-timers.css','components/phase2-dashboard.css','components/phase3.css'].map(f=>fs.readFileSync(path.join(root,f),'utf8')).join('\n');
+  const css=['app/globals.css','components/phase2-timers.css','components/phase2-dashboard.css','components/phase3.css','components/phase4.css'].map(f=>fs.readFileSync(path.join(root,f),'utf8')).join('\n');
   const dir=path.join(root,'..','artifacts','phase3-preview');fs.mkdirSync(dir,{recursive:true});
   fs.writeFileSync(path.join(dir,`${name}.html`),`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Phase 3 ${name} · synthetic test data</title><style>:root{--font-sans:Arial,sans-serif;--font-mono:monospace}${css}</style>${markup}`);
 }
 
 test('Today composes the cockpit in order, with one Food card and nothing after the session',async()=>{
   const seed=gymSeed([]);seed.workout_days=[{id:'day',user_id:'test-user',name:'Upper Push',is_active:true,is_daily:false,weekday:((new Date().getDay()+6)%7)+1}];
-  Object.assign(seed,{run_plan:[{id:'run',date:date(),run_type:'easy',duration_min:40}],pain_logs:[],photos:[],daily_log:[],v_daily_nutrition:[],user_settings:[],foods:[],v_session_intensity:[],v_commute_weekly:[]});
+  Object.assign(seed,{run_plan:[{id:'run',user_id:'test-user',date:date(),run_type:'easy',duration_min:40}],pain_logs:[],photos:[],daily_log:[],v_daily_nutrition:[],user_settings:[],foods:[],v_session_intensity:[],v_commute_weekly:[]});
   const db=database(seed);const Today=mountSource('components/Today.js',db);
   await act(async()=>{mounted=create(React.createElement(Today,{userId:'test-user',onFood(){},onPain(){},onDaily(){},onRun(){},onStart(){},subtabs:React.createElement('div',null,'Today / Progress')}));});await flush();
   const content=text(mounted.toJSON());
@@ -270,4 +270,19 @@ test('food saves serving-adjusted nutrition once on repeated taps',async()=>{
   await act(async()=>mounted.root.findByProps({'aria-label':'Servings'}).props.onChange({target:{value:'1.5'}}));
   const save=button(mounted,'Add to snack').props.onClick;await act(async()=>Promise.all([save(),save()]));
   assert.equal(db.tables.meal_logs.length,1);assert.equal(db.tables.meal_logs[0].kcal,150);assert.equal(db.tables.meal_logs[0].protein_g,30);
+});
+
+
+test('schedule move requires explicit swap or stack and retry preserves request identity',async()=>{
+ const a={id:'a',user_id:'test-user',date:date(),run_type:'easy',duration_min:40};
+ const tomorrow=new Date();tomorrow.setDate(tomorrow.getDate()+1);const dest=tomorrow.toLocaleDateString('en-CA');
+ const db=database({run_plan:[a,{id:'b',user_id:'test-user',date:dest,run_type:'long',duration_min:100}],workout_days:[],lift_schedule:[],runs:[]});
+ const calls=[];let closed=0,changed=0;db.rpc=async(name,args)=>{calls.push(args);return {error:calls.length===1?{message:'Connection interrupted'}:null};};
+ const Editor=mountSource('components/ScheduleEditor.js',db);
+ await act(async()=>{mounted=create(React.createElement(Editor,{userId:'test-user',item:{...a,key:'run:a',kind:'run',title:'easy run',status:'scheduled',revision:0},onClose:()=>closed++,onChanged:()=>changed++}));});await flush();
+ assert.equal(button(mounted,'Save change').props.disabled,true);
+ await act(async()=>button(mounted,'Swap dates').props.onClick());assert.equal(button(mounted,'Save change').props.disabled,false);
+ await act(async()=>button(mounted,'Save change').props.onClick());assert.equal(closed,0);assert.match(text(mounted.toJSON()),/Connection interrupted/);
+ await act(async()=>button(mounted,'Save change').props.onClick());assert.equal(closed,1);assert.equal(changed,1);assert.equal(calls[0].p_changes.length,2);assert.equal(calls[0].p_request_id,calls[1].p_request_id);assert.equal(calls[0].p_changes[1].to_date,date());
+ capture('schedule-move',mounted);
 });

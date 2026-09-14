@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { supa, LOAD_UNIT } from '../lib/supabase';
+import { loadSchedule } from '../lib/schedule-client';
 import { localDate, latestPain, PAIN_MOVEMENTS, sessionProgress } from '../lib/phase2-data.mjs';
 
 export default function Dashboard({ userId, revision, onPain, onRun, onDaily, onStart, onToday, onProgress }) {
@@ -21,15 +22,17 @@ export default function Dashboard({ userId, revision, onPain, onRun, onDaily, on
           s.from('sessions').select('*').eq('user_id', userId).eq('date', date).order('started_at', { ascending: false, nullsFirst: false }),
         ]);
         for (const r of results) if (r.error) throw r.error;
-        const [plans, pain, days, sessions] = results.map(r => r.data || []);
+        const [rawPlans, pain, days, sessions] = results.map(r => r.data || []);
         const weekday = ((new Date(`${date}T12:00:00`).getDay() + 6) % 7) + 1;
         const daily = days.filter(d => d.is_daily === true);
-        const lifts = days.filter(d => !d.is_daily && d.session_type !== 'daily' && d.weekday === weekday);
+        const scheduled=(await loadSchedule(userId,date,date)).filter(x=>x.status!=='skipped');
+        const plans=scheduled.filter(x=>x.kind==='run');
+        const lifts=scheduled.filter(x=>x.kind==='lift').map(x=>x.day);
         const selected = [...daily, ...lifts];
         const cards = await Promise.all(selected.map(async day => {
           const { data: items, error } = await s.from('workout_exercises').select('*, exercises(name)').eq('workout_day_id', day.id).eq('is_enabled', true).order('order_index');
           if (error) throw error;
-          const session = sessions.find(x => x.workout_day_id === day.id && (day.is_daily || (x.started_at && !x.completed_at)));
+          const session = sessions.find(x => x.workout_day_id === day.id && (!x.schedule_ref || x.schedule_ref===day.schedule_ref) && (day.is_daily || (x.started_at && !x.completed_at)));
           let logs = [];
           if (session) { const r = await s.from('set_logs').select('exercise_id,set_number').eq('session_id', session.id); if (r.error) throw r.error; logs = r.data || []; }
           return { day, session, items: items || [], ...sessionProgress(items || [], logs) };
@@ -43,7 +46,7 @@ export default function Dashboard({ userId, revision, onPain, onRun, onDaily, on
       <button className={`dashboard-pain ${PAIN_MOVEMENTS.every(m => data.pain[m]?.score != null) ? 'is-scored' : ''}`} onClick={onPain}><span><strong>{PAIN_MOVEMENTS.every(m => data.pain[m]?.score != null) ? 'Pain scores recorded' : 'Pain not scored cold'}</strong><small>{PAIN_MOVEMENTS.every(m => data.pain[m]?.score != null) ? `Dorsiflexion ${data.pain.dorsiflexion.score} · eversion ${data.pain.eversion.score}` : 'Dorsiflexion + eversion · 4 taps'}</small></span><b>Log →</b></button>
       <div className="row"><h2>Today</h2><button className="chip" onClick={onToday}>Open →</button></div>
       {data.plans.map(plan => <div className="card key" key={plan.id || plan.date}><span className="u-label">{plan.is_key_session ? 'KEY SESSION' : 'RUN PLAN'}</span><strong className="dashboard-title">{plan.run_type} run{plan.duration_min != null ? ` · ${plan.duration_min} min` : ''}</strong><div>{plan.hr_ceiling != null && <span className="pill">HR ≤{plan.hr_ceiling}</span>}{plan.hr_target_low != null && plan.hr_target_high != null && <span className="pill">Aim {plan.hr_target_low}–{plan.hr_target_high}</span>}</div>{plan.structure_note && <p className="muted">{plan.structure_note}</p>}<button className="btn" onClick={() => onRun(plan.warmup_type === 'full' ? 'full' : 'short')}>Start run</button><span className="u-label">{plan.warmup_type === 'full' ? 'FULL' : 'SHORT'} WARM-UP · GARMIN RECORDS THE RUN</span></div>)}
-      {data.lifts.map(c => <div className="card" key={c.day.id}><strong className="dashboard-title">{c.day.name}</strong><p className="muted">{c.items.length} exercises{c.day.est_minutes != null ? ` · ${c.day.est_minutes} min` : ''}</p><button className={c.session ? 'btn--resume' : 'btn'} onClick={() => onStart(c.day)}><b>{c.session ? `Resume ${c.day.name}` : 'Start lift'}</b>{c.session && <span>{c.count} SETS</span>}</button>{c.session && <p className="u-label">Started {new Date(c.session.started_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} · {c.next ? `Picks up at ${c.next.item.exercises?.name || 'unavailable exercise'} set ${c.next.setNumber}` : 'All sets recorded · finish session'}</p>}</div>)}
+      {data.lifts.map(c => <div className="card" key={c.day.schedule_ref||c.day.id}><strong className="dashboard-title">{c.day.name}</strong><p className="muted">{c.items.length} exercises{c.day.est_minutes != null ? ` · ${c.day.est_minutes} min` : ''}</p><button className={c.session ? 'btn--resume' : 'btn'} onClick={() => onStart(c.day)}><b>{c.session ? `Resume ${c.day.name}` : 'Start lift'}</b>{c.session && <span>{c.count} SETS</span>}</button>{c.session && <p className="u-label">Started {new Date(c.session.started_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} · {c.next ? `Picks up at ${c.next.item.exercises?.name || 'unavailable exercise'} set ${c.next.setNumber}` : 'All sets recorded · finish session'}</p>}</div>)}
       {!data.plans.length && !data.lifts.length && <div className="card"><p className="muted">No run or lifting session scheduled today.</p></div>}
       <h2>Daily block</h2>{data.daily.length ? data.daily.map(c => <div className="card" key={c.day.id}><div className="row"><strong>{c.day.name}</strong><span className="u-sub">{c.completeItems} of {c.items.length}</span></div><div className="bar bar--thin"><i style={{ width: `${c.total ? c.count / c.total * 100 : 0}%` }}/></div><p className="muted">{c.count} of {c.total} sets logged{c.next ? ` · Next: ${c.next.item.exercises?.name || 'exercise unavailable'}, set ${c.next.setNumber}` : c.total ? ' · All prescribed sets recorded' : ' · No enabled items'}</p><button className="btn ghost" onClick={onDaily}>{c.next && c.count ? 'Continue' : c.total && !c.next ? 'Review daily block' : 'Open daily block'}</button></div>) : <div className="card"><p className="muted">No active daily block is configured.</p><button className="btn ghost" onClick={onDaily}>Open daily block</button></div>}
       <KeyLifts userId={userId} revision={revision}/>
