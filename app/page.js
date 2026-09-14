@@ -81,6 +81,9 @@ function TrainingApp({ user }) {
   const closing = useRef(false);
   const afterClose = useRef(null);
   const changed = () => setRevision(x => x + 1);
+  useEffect(()=>{window.scrollTo({top:0,behavior:'instant'});},[tab,sub]);
+  useEffect(()=>{if(!overlay)return;const previous=document.body.style.overflow;document.body.style.overflow='hidden';return()=>{document.body.style.overflow=previous;};},[overlay]);
+
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -145,7 +148,7 @@ function TrainingApp({ user }) {
   const onStart = day => openOverlay('session', { day });
   const subnav = <div className="wrap phase2-subnav"><div className="seg" aria-label="Dashboard views">{['today', 'progress'].map(v => <button key={v} className={sub === v ? 'on' : ''} onClick={() => setSub(v)}>{v[0].toUpperCase() + v.slice(1)}</button>)}<span className="swipe-hint">Swipe ⇄</span></div></div>;
   return <>
-    <main className="training-shell" onTouchStart={e=>{const t=e.touches[0];swipe.current={x:t.clientX,y:t.clientY};}} onTouchEnd={e=>{if(tab!=='dashboard'||sub==='overview'||!swipe.current)return;const t=e.changedTouches[0],dx=t.clientX-swipe.current.x,dy=t.clientY-swipe.current.y;swipe.current=null;if(Math.abs(dx)>70&&Math.abs(dy)<40)setSub(dx<0?'progress':'today');}} aria-hidden={!!overlay} inert={overlay ? '' : undefined}>
+    <main className="training-shell" onTouchStart={e=>{if(e.target.closest('input,textarea,select,button')){swipe.current=null;return;}const t=e.touches[0];swipe.current={x:t.clientX,y:t.clientY};}} onTouchEnd={e=>{if(tab!=='dashboard'||sub==='overview'||!swipe.current)return;const t=e.changedTouches[0],dx=t.clientX-swipe.current.x,dy=t.clientY-swipe.current.y;swipe.current=null;if(Math.abs(dx)>70&&Math.abs(dy)<40)setSub(dx<0?'progress':'today');}} aria-hidden={!!overlay} inert={overlay ? '' : undefined}>
       {tab === 'dashboard' && <>
         {sub === 'overview' && <Dashboard userId={user.id} revision={revision} onPain={onPain} onDaily={onDaily} onRun={onRun} onStart={onStart} onToday={() => setSub('today')} onProgress={() => setSub('progress')} onWeek={date => {setWeekDate(date);navigate('week');}} onSettings={() => navigate('settings')} email={user.email}/>}
         {sub === 'today' && <Today onWorkout={day => openOverlay('workout',{day})} onCommute={trip => openOverlay('commute',trip)} onSchedule={onSchedule} subtabs={subnav} onFood={food => openOverlay('food', { food })} key={revision} onStart={onStart} onPain={onPain} onDaily={onDaily} onRun={onRun} userId={user.id} beepEnabled={beepEnabled}/>}

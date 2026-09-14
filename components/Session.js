@@ -340,7 +340,7 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
           </div>
         )}
 
-        {ex.cue_execution && <div className="cue">{ex.cue_execution}</div>}
+        {ex.cue_execution && <div className="cue"><strong>Cue</strong>{ex.cue_execution}</div>}
         {ex.cue_mistake && <div className="cue" style={{ borderLeftColor: 'var(--warn)' }}>
           <strong>Common mistake:</strong> {ex.cue_mistake}</div>}
         {ex.feel_target && <div className="cue" style={{ borderLeftColor: 'var(--info)' }}>

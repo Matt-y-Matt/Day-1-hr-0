@@ -16,7 +16,7 @@ The visual source of truth is `design/Training_Tracker_-_standalone.html`, not t
 
 ## Visual review and limits
 
-Inspected the reference and rendered components at 390px. Checked eleven populated/synthetic flows for horizontal overflow. Production verification follows deployment. Functional tests cover real components against an in-memory transport; they do not insert production training data.
+Inspected the reference and rendered components at 390px. Checked eleven populated/synthetic flows for horizontal overflow. Signed-in production Dashboard, Today and active set verified after deployment. Screen changes return to the top; overlays lock background scrolling. Functional tests cover real components against an in-memory transport; they do not insert production training data.
 
 Mockup example records, OS status bar, static device frame, sample health claims and invented deltas are not production content. Additional working controls and missing-data states use the reference's visual language. Application content scrolls normally; it is not clipped to the mockup's fixed canvas heights.
 
