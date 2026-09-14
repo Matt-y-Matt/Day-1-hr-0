@@ -16,6 +16,10 @@ export function RestTimer({seconds,onDone,beepEnabled=false,userId,sessionId}) {
  useEffect(()=>{if(timer.status==='done'&&!called.current){called.current=true;onDone?.();}},[timer.status,onDone]);
  return <div className="card"><div className="timer">{mmss(timer.left)}</div><div className="grid2"><button className="btn ghost" onClick={timer.extend}>+30s</button><button className="btn ghost" onClick={timer.skip}>Skip</button></div></div>;
 }
+export function GymRestTimer({seconds,storageKey,nextSet,onDone,beepEnabled=false}) {
+ const timer=useTimer({durations:[seconds],autoStart:true,beepEnabled,storageKey});
+ return <><TimerRing left={timer.left} total={seconds}/><p className="muted">{timer.status==='done'?'Rest complete. Start when you are ready.':'Breathe. Set up for the next set.'}</p><button className="btn" onClick={onDone}>Start set {nextSet} now</button><button className="btn ghost" onClick={timer.extend}>+30 seconds</button></>;
+}
 export function WarmupTimer({type='short',onClose,onDone=onClose,beepEnabled=false,userId}) {
  const seq=type==='full'?FULL:SHORT;
  const timer=useTimer({durations:seq.map(s=>s.s),beepEnabled,storageKey:userId?`timer:${userId}:warmup:${today()}:${type}`:null});

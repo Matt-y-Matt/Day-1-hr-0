@@ -1,9 +1,8 @@
 # Matt's Training App — context for Claude Code
 
-> Current handover: read `PHASE-2-HANDOVER.md` first. Phase 2 in the Claude
-> handover means the daily path (Phase 1 in the design spec). It is now implemented
-> on the Phase 2 branch. Sections below describe the original app and include
-> historical programme context; they are not verified deployment/account status.
+> Current handover: read `PHASE-3-HANDOVER.md` first. Phase 3 here means the gym
+> loop (Phase 2 in the design spec). Both accounts have complete, separate programme
+> copies. Sections below also include historical programme context.
 
 Personal training app. Single user (Matt). Mobile-first PWA.
 Tracks marathon training, strength, tendon rehab, commutes, and body metrics
@@ -19,8 +18,9 @@ for the Standard Chartered Singapore Marathon, **5 December 2026**.
 - Vercel for hosting
 - No Tailwind. Plain CSS in `app/globals.css`, class-based.
 
-**Auth:** Supabase email/password. Publishable key comes from `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
-falling back to a one-time setup screen that stores it in `localStorage` under `sb_key`.
+**Auth:** Supabase email/password. Public configuration is bundled in
+`lib/public-config.json`, with optional publishable/legacy anon env overrides.
+There is no browser key setup. Never bundle a secret/service-role key.
 See `lib/supabase.js`.
 
 ---

@@ -1,7 +1,9 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { supa, getKey, SUPA_URL, BUILD } from '../lib/supabase';
+import { supa, getKey, BUILD } from '../lib/supabase';
 import Today from '../components/Today';
+import FoodLog from '../components/Food';
+import '../components/phase3.css';
 import Week from '../components/Week';
 import LogPanel from '../components/LogPanel';
 import Progress from '../components/Progress';
@@ -46,7 +48,7 @@ export default function Page() {
     return () => { alive = false; };
   }, [user?.id, retry]);
   if (!ready) return <div className="wrap"><p className="muted">Loading…</p></div>;
-  if (!hasKey) return <KeySetup />;
+  if (!hasKey) return <div className="wrap"><h1>Temporarily unavailable</h1><p>Please try again shortly.</p></div>;
   if (!user) return <SignIn />;
   if (setupError) return <div className="wrap"><h1>Programme unavailable</h1><div className="flag" role="alert">{setupError}</div><button className="btn" onClick={() => setRetry(x => x + 1)}>Retry</button></div>;
   if (seededFor !== user.id) return <div className="wrap"><p className="muted">Setting up your programme…</p></div>;
@@ -140,11 +142,12 @@ function TrainingApp({ user }) {
   const onDaily = () => openOverlay('daily');
   const onRun = type => openOverlay('warmup', { type });
   const onStart = day => openOverlay('session', { day });
+  const subnav = <div className="wrap phase2-subnav"><div className="seg" aria-label="Dashboard views">{['overview', 'today', 'progress'].map(v => <button key={v} className={sub === v ? 'on' : ''} onClick={() => setSub(v)}>{v[0].toUpperCase() + v.slice(1)}</button>)}</div></div>;
   return <>
     <main aria-hidden={!!overlay} inert={overlay ? '' : undefined}>
-      {tab === 'dashboard' && <><div className="wrap phase2-subnav"><div className="seg" aria-label="Dashboard views">{['overview', 'today', 'progress'].map(v => <button key={v} className={sub === v ? 'on' : ''} onClick={() => setSub(v)}>{v[0].toUpperCase() + v.slice(1)}</button>)}</div></div>
+      {tab === 'dashboard' && <>{sub !== 'today' && subnav}
         {sub === 'overview' && <Dashboard userId={user.id} revision={revision} onPain={onPain} onDaily={onDaily} onRun={onRun} onStart={onStart} onToday={() => setSub('today')} onProgress={() => setSub('progress')}/>}
-        {sub === 'today' && <Today key={revision} onStart={onStart} onPain={onPain} onDaily={onDaily} onRun={onRun} userId={user.id} beepEnabled={beepEnabled}/>}
+        {sub === 'today' && <Today subtabs={subnav} onFood={food => openOverlay('food', { food })} key={revision} onStart={onStart} onPain={onPain} onDaily={onDaily} onRun={onRun} userId={user.id} beepEnabled={beepEnabled}/>}
         {sub === 'progress' && <><div className="wrap phase2-tools"><button className="btn ghost" onClick={() => openOverlay('export')}>Export</button></div><Progress/></>}
       </>}
       {tab === 'week' && <Week/>}
@@ -153,6 +156,7 @@ function TrainingApp({ user }) {
       {nav}
     </main>
     {overlay && <div ref={dialogRef} tabIndex={-1} className="phase2-overlay" role="dialog" aria-modal="true" aria-label={overlay.name} key={overlay.token}>
+      {overlay.name === 'food' && <FoodLog userId={user.id} initialFood={overlay.food} onChanged={changed} onClose={() => closeOverlay()}/>}
       {overlay.name === 'pain' && <PainLog userId={user.id} onClose={() => closeOverlay()} onChanged={changed}/>}
       {overlay.name === 'daily' && <DailyBlock userId={user.id} beepEnabled={beepEnabled} onClose={() => closeOverlay()} onChanged={changed}/>}
       {overlay.name === 'warmup' && <WarmupTimer type={overlay.type} userId={user.id} beepEnabled={beepEnabled} onClose={() => closeOverlay()} onDone={() => closeOverlay(() => { setTab('dashboard'); setSub('today'); })}/>}
@@ -162,28 +166,6 @@ function TrainingApp({ user }) {
     </div>}
   </>;
 }
-function KeySetup() {
-  const [k, setK] = useState('');
-  return (
-    <div className="wrap">
-      <h1>One-time setup</h1>
-      <p className="sub">Paste your Supabase publishable (anon) key</p>
-      <div className="card">
-        <p className="muted" style={{ marginBottom: 14 }}>
-          Supabase dashboard → Project Settings → API Keys. It starts with <code>sb_publishable_</code> or <code>eyJ</code>.
-          It is safe in the browser — row-level security is what protects the data.
-        </p>
-        <div className="field"><label>Project URL</label><input value={SUPA_URL} readOnly /></div>
-        <div className="field"><label>Anon key</label>
-          <input value={k} onChange={e => setK(e.target.value)} placeholder="sb_publishable_…" /></div>
-        <button className="btn" disabled={!k.trim()} onClick={() => {
-          localStorage.setItem('sb_key', k.trim()); location.reload();
-        }}>Save & continue</button>
-      </div>
-    </div>
-  );
-}
-
 function SignIn() {
   const [mode, setMode] = useState('in');
   const [email, setEmail] = useState('');

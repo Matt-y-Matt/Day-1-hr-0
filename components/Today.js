@@ -3,9 +3,14 @@ import { useEffect, useState } from 'react';
 import { supa, TIER, today, fmtDate } from '../lib/supabase';
 import { WarmupTimer } from './Timers';
 import Commute from './Commute';
-import { latestPain, PAIN_MOVEMENTS } from '../lib/phase2-data.mjs';
+import BodyCard from './BodyCard';
+import { FoodCard } from './Food';
+import { loadLabel } from '../lib/gym.mjs';
+import { latestPain, PAIN_MOVEMENTS, sessionProgress } from '../lib/phase2-data.mjs';
 
-export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEnabled }) {
+export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEnabled, onFood, subtabs }) {
+  const [mode, setMode] = useState('run');
+  const [daily, setDaily] = useState(null);
   const [days, setDays] = useState([]);
   const [plan, setPlan] = useState(null);
   const [pain, setPain] = useState([]);
@@ -22,12 +27,26 @@ export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEna
     setDays((d || []).filter(day => !day.is_daily && day.session_type !== 'daily'));
     const { data: p, error: pe } = await s.from('run_plan').select('*').eq('date', t);
     if (pe) setError(pe.message);
-    setPlan(p?.[0] || null);
+    setPlan(p || []);
+    setMode(p?.length ? 'run' : 'lift');
+    const { data: dailyDays, error: dailyError } = await s.from('workout_days').select('*').eq('is_daily', true).eq('is_active', true);
+    if (dailyError) setError(dailyError.message);
+    if (dailyDays?.[0]) {
+      const day = dailyDays[0];
+      const { data: items, error: itemError } = await s.from('workout_exercises').select('*, exercises(*)').eq('workout_day_id',day.id);
+      const { data: sessions, error: sessionError } = await s.from('sessions').select('id').eq('workout_day_id',day.id).eq('date',t).order('started_at',{ascending:false,nullsFirst:false}).limit(1);
+      if (itemError || sessionError) setError((itemError || sessionError).message);
+      else {
+        const result = sessions?.length ? await s.from('set_logs').select('*').eq('session_id',sessions[0].id) : {data:[]};
+        if (result.error) setError(result.error.message);
+        else setDaily({ ...sessionProgress(items || [],result.data || []), totalItems: (items || []).filter(i => i.is_enabled !== false).length });
+      }
+    }
     const { data: pl, error: ple } = await s.from('pain_logs').select('*').eq('date', t);
     if (ple) setError(ple.message);
     setPain(pl || []);
     setLoading(false);
-  })(); }, []);
+  })().catch(e => { setError(e.message); setLoading(false); }); }, []);
 
   if (loading) return <div className="wrap"><h1>Today</h1><p className="muted">Loading today’s programme…</p></div>;
 
@@ -39,16 +58,18 @@ export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEna
       <p className="sub">{daysToRace} days to SCSM</p>
 
       {error && <div className="flag" role="alert">Could not load Today: {error}</div>}
-      {!error && !PAIN_MOVEMENTS.every(m => latestPain(pain, t)[m]?.score != null) && (
-        <div className="flag">Morning pain check not logged. Score it cold, before you load anything —
-          that is the reading the return criteria run on.<button className="btn ghost" onClick={onPain}>Log dorsiflexion + eversion</button></div>
-      )}
-
+      {subtabs}
+      <div className="seg today-toggle" aria-label="Training type">{['run','lift'].map(m => <button key={m} className={mode === m ? 'on' : ''} onClick={() => setMode(m)}>{m === 'run' ? 'Run' : 'Lift'}</button>)}</div>
+      <button className="cockpit-row pain-row" onClick={onPain}><span><strong>{PAIN_MOVEMENTS.every(m => latestPain(pain,t)[m]?.score != null) ? 'Pain scored cold' : 'Pain not scored cold'}</strong><small>Dorsiflexion + eversion · 4 taps</small></span><span>Log →</span></button>
       {warm && <WarmupTimer type={warm} onClose={() => setWarm(null)} userId={userId} beepEnabled={beepEnabled} />}
 
-      <div className="card"><button className="btn ghost" onClick={onDaily}>Daily block · open routine</button></div>
-      {plan && (
-        <div className="card key">
+      <button className="cockpit-row" onClick={onDaily}><span><strong>Daily · tendon + hip</strong><small>{daily ? `${daily.completeItems} of ${daily.totalItems} complete` : 'Open your daily routine'}</small></span><span>Continue →</span></button>
+      <BodyCard userId={userId}/>
+      <FoodCard userId={userId} dayType={plan?.some(p => p.run_type === 'long') ? 'long' : plan?.length && days.length ? 'run_lift' : plan?.length || days.length ? 'easy' : 'rest'} onOpen={onFood}/>
+      <Commute />
+      <section className="today-session" aria-label="Today’s session">
+      {mode === 'run' && (plan || []).map(plan => (
+        <div className="card key" key={plan.id}>
           <div className="row">
             <strong style={{ fontSize: 18 }}>
               {plan.run_type === 'long' ? '🏃 Long run' : plan.run_type === 'threshold' ? '⚡ Threshold'
@@ -66,15 +87,13 @@ export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEna
           {plan.structure_note && <div className="cue">{plan.structure_note}</div>}
           {plan.coach_note && <div className="cue" style={{ borderLeftColor: 'var(--warn)' }}>{plan.coach_note}</div>}
           <button className="btn" style={{ marginTop: 14 }}
-            onClick={() => onRun ? onRun(plan.warmup_type || 'short') : setWarm(plan.warmup_type || 'short')}>Start warm-up</button>
+            onClick={() => onRun ? onRun(plan.warmup_type || 'short') : setWarm(plan.warmup_type || 'short')}>Start run · warm-up</button><p className="u-label">Garmin records the run</p>
         </div>
-      )}
+      ))}
 
-      <Commute />
+      {mode === 'lift' && days.map(d => <DayCard key={d.id} day={d} onStart={onStart} />)}
 
-      {days.map(d => <DayCard key={d.id} day={d} onStart={onStart} />)}
-
-      {!error && !plan && days.length === 0 && (
+      {!error && !(plan?.length) && days.length === 0 && (
         <div className="card">
           <strong>Full rest day</strong>
           <p className="muted" style={{ marginTop: 8 }}>
@@ -83,8 +102,9 @@ export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEna
           </p>
         </div>
       )}
-
-
+      {!error && mode === 'run' && !plan?.length && days.length > 0 && <div className="card"><strong>No run planned today</strong><button className="btn ghost" onClick={() => setMode('lift')}>View today’s lift</button></div>}
+      {!error && mode === 'lift' && !days.length && plan?.length > 0 && <div className="card"><strong>No lift planned today</strong><button className="btn ghost" onClick={() => setMode('run')}>View today’s run</button></div>}
+      </section>
     </div>
   );
 }
@@ -135,7 +155,7 @@ function DayCard({ day, onStart }) {
                 {ex.load_unit === 'per_hand' &&
                   <span className="muted" style={{ fontSize: 11 }}> · per hand</span>}</span>
               <span className="muted">
-                {i.sets}×{i.hold_seconds ? i.hold_seconds + 's' : (i.rep_min === i.rep_max ? i.rep_min : `${i.rep_min}–${i.rep_max}`)}
+                {loadLabel(i.target_weight_kg, ex.load_unit)} · {i.sets}×{i.hold_seconds ? i.hold_seconds + 's' : (i.rep_min === i.rep_max ? i.rep_min : `${i.rep_min}–${i.rep_max}`)}
               </span>
             </div>
           );
@@ -150,7 +170,7 @@ function DayCard({ day, onStart }) {
         {missing > 0 && (
           <div className="flag" style={{ marginTop: 10 }}>
             {missing} of {items.length} exercises on this day are not readable by the account you are
-            signed in as. The workout is incomplete until the programme data is consolidated.
+            signed in as. The workout is incomplete until the programme data is repaired.
           </div>
         )}
       </div>

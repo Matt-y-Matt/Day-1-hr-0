@@ -17,10 +17,12 @@ function database(seed, fail = () => false) {
     const b = {
       select() { return b; }, eq(k,v) { q.filters.push(r=>r[k]===v); return b; },
       gte(k,v) { q.filters.push(r=>r[k]>=v); return b; }, lte(k,v) { q.filters.push(r=>r[k]<=v); return b; },
+      not(k,op,v) { q.filters.push(r=>r[k]!=v); return b; },
       is(k,v) { q.filters.push(r=>r[k]===v); return b; }, order() { return b; }, limit(n) { q.limit=n; return b; },
       maybeSingle() { q.single=true; return b; }, single() { q.single=true; return b; },
-      insert(body) { q.op='insert'; q.body=body; return b; }, upsert(body) { q.op='upsert'; q.body=body; return b; },
+      insert(body) { q.op='insert'; q.body=body; return b; }, upsert(body,options={}) { q.op='upsert'; q.body=body; q.options=options; return b; },
       update(body) { q.op='update'; q.body=body; return b; },
+      delete() { q.op='delete'; return b; },
       then(resolve, reject) {
         return Promise.resolve().then(() => {
           if (q.op!=='select') writes.push(q);
@@ -30,14 +32,16 @@ function database(seed, fail = () => false) {
           if (q.op==='insert' || q.op==='upsert') {
             rows=[];
             for (const value of Array.isArray(q.body)?q.body:[q.body]) {
-              const existing=tables[table].find(r=>r.id && r.id===value.id);
-              if (existing && q.op==='upsert') continue;
+              const conflict=(q.options?.onConflict || 'id').split(',');
+              const existing=tables[table].find(r=>conflict.every(k=>value[k]!=null && r[k]===value[k]));
+              if (existing && q.op==='upsert') { if (!q.options?.ignoreDuplicates) Object.assign(existing,value); rows.push(existing); continue; }
               const row={id:value.id||`test-${table}-${tables[table].length}`,logged_at:new Date().toISOString(),...value};
               tables[table].push(row); rows.push(row);
             }
           } else if (q.op==='update') rows.forEach(r=>Object.assign(r,q.body));
+          else if (q.op==='delete') tables[table]=tables[table].filter(r=>!rows.includes(r));
           if(q.limit) rows=rows.slice(0,q.limit);
-          return {data:structuredClone(q.single?(rows[0]||null):rows),error:null};
+          return {data:structuredClone(q.single?(rows[0]||null):rows),count:rows.length,error:null};
         }).then(resolve,reject);
       }
     }; return b;
@@ -48,10 +52,11 @@ function mountSource(file, db) {
   const cache=new Map();
   function load(filename) {
     if(filename.endsWith('.css')) return {};
+    if(filename.endsWith('.json')) return JSON.parse(fs.readFileSync(filename,'utf8'));
     if(cache.has(filename)) return cache.get(filename).exports;
     const mod=new Module(filename, module); mod.filename=filename; mod.paths=Module._nodeModulePaths(path.dirname(filename)); cache.set(filename,mod);
     mod.require=name=> {
-      if(name.endsWith('/supabase')) return {supa:()=>db,today:date};
+      if(name.endsWith('/supabase')) return {...load(path.join(root,'lib/supabase.js')),supa:()=>db,today:date};
       if(name.startsWith('.')) {
         const target=path.resolve(path.dirname(filename),name);
         return load(fs.existsSync(target)?target:target+'.js');
@@ -65,7 +70,7 @@ function mountSource(file, db) {
 }
 const text = n => typeof n==='string'?n:!n?'':(n.children||[]).map(text).join(' ');
 const buttons = tree => tree.root.findAllByType('button');
-const button = (tree, label) => { const b=buttons(tree).find(n=>text(n).includes(label)); assert.ok(b,`Missing button: ${label}`); return b; };
+const button = (tree, label) => { const b=buttons(tree).find(n=>text(n).replace(/\s+/g,' ').includes(label)); assert.ok(b,`Missing button: ${label}`); return b; };
 async function flush() { await act(async()=>{for(let i=0;i<5;i++) await new Promise(resolve=>setImmediate(resolve));}); }
 let mounted;
 test.before(async()=>{await swc.loadBindings();});
@@ -152,4 +157,117 @@ test('two daily instances logging the same session set create only one canonical
   const saves=buttons(mounted).filter(n=>text(n).includes('Log set 1'));
   assert.equal(saves.length,2);await act(async()=>{await Promise.all(saves.map(n=>n.props.onClick()));});
   assert.equal(db.tables.set_logs.length,1);assert.equal(db.tables.set_logs[0].set_number,1);
+});
+
+function gymSeed(logs=[]) {
+  return { ...dailySeed(null,logs), workout_exercises:[{id:'item',user_id:'test-user',workout_day_id:'day',exercise_id:'exercise',is_enabled:true,sets:3,rep_min:8,rep_max:10,target_weight_kg:14,rest_seconds:90,exercises:{name:'Dumbbell press',priority_tier:'A',load_unit:'per_hand',rir_target:'2–3',increment_kg:2}}], v_last_performance:[],v_progression_suggestions:[] };
+}
+async function mountGym(db) {
+  const Session=mountSource('components/Session.js',db);
+  await act(async()=>{mounted=create(React.createElement(Session,{day:{id:'day',name:'Test lift'},userId:'test-user',onExit(){}}));}); await flush();
+}
+test('gym edit loads saved values, updates the same row and never advances or starts rest',async()=>{
+  const seed=gymSeed([1]);seed.set_logs[0].weight_kg=14;
+  const db=database(seed); await mountGym(db);
+  await act(async()=>mounted.root.findByProps({'aria-label':'Set 1, completed'}).props.onClick());
+  assert.equal(mounted.root.findByProps({'aria-label':'Load'}).props.value,14);
+  assert.ok(mounted.root.findByProps({'data-mode':'edit'}));
+  await act(async()=>mounted.root.findByProps({'aria-label':'Load'}).props.onChange({target:{value:'16.5'}}));
+  await act(async()=>button(mounted,'Update set 1').props.onClick());
+  assert.equal(db.tables.set_logs.length,1);assert.equal(db.tables.set_logs[0].id,'set-1');assert.equal(db.tables.set_logs[0].weight_kg,16.5);
+  assert.ok(button(mounted,'Update set 1'));assert.match(text(mounted.toJSON()),/33 kg total/);assert.doesNotMatch(text(mounted.toJSON()),/Start set 2 now/);
+  capture('set-edit',mounted);
+});
+test('gym new set saves once, uses prescribed rest and returns to the next missing set',async()=>{
+  const db=database(gymSeed([]));await mountGym(db);
+  const save=button(mounted,'Log set 1').props.onClick;
+  await act(async()=>{await Promise.all([save(),save()]);});
+  assert.equal(db.tables.set_logs.length,1);
+  assert.ok(mounted.root.findByProps({'aria-label':'90 seconds remaining'}));
+  capture('rest',mounted);
+  await act(async()=>button(mounted,'Start set 2 now').props.onClick());
+  assert.ok(button(mounted,'Log set 2'));assert.equal(db.tables.set_logs.length,1);
+});
+test('gym failed save does not advance or create a success state',async()=>{
+  const db=database(gymSeed([]),q=>q.table==='set_logs' && q.op!=='select');await mountGym(db);
+  await act(async()=>button(mounted,'Log set 1').props.onClick());
+  assert.ok(button(mounted,'Log set 1'));assert.equal(db.tables.set_logs.length,0);assert.match(text(mounted.toJSON()),/Not saved/);
+});
+test('gym deletion removes only the selected set and restores pending mode',async()=>{
+  const db=database(gymSeed([1,3]));await mountGym(db);
+  await act(async()=>mounted.root.findByProps({'aria-label':'Set 1, completed'}).props.onClick());
+  await act(async()=>button(mounted,'Delete set 1').props.onClick());
+  assert.deepEqual(db.tables.set_logs.map(s=>s.set_number),[3]);assert.ok(button(mounted,'Log set 1'));
+});
+test('gym read failures cannot create a replacement session',async()=>{
+  const db=database(gymSeed([1]),q=>q.table==='sessions');await mountGym(db);
+  assert.match(text(mounted.toJSON()),/Simulated unavailable connection/);assert.equal(db.writes.length,0);
+  assert.equal(buttons(mounted).some(b=>text(b).includes('Log set')),false);
+});
+test('body opens empty, accepts measurements and collapses only with both weights and a photo',async()=>{
+  const db=database({daily_log:[{id:'body',user_id:'test-user',date:date(),weight_am_kg:71,weight_pm_kg:null,waist_cm:83}],photos:[{id:'photo',user_id:'test-user',date:date(),slot:'am',storage_path:'test'}]});
+  db.storage={from:()=>({createSignedUrl:async()=>({data:{signedUrl:'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=='}})})};
+  const Body=mountSource('components/BodyCard.js',db);
+  await act(async()=>{mounted=create(React.createElement(Body,{userId:'test-user'}));});await flush();
+  assert.equal(mounted.root.findByProps({'aria-label':'PM weight'}).props.value,'');
+  assert.ok(mounted.root.findAll(n=>n.props.className?.includes('is-empty')).length);
+  capture('body-expanded',mounted);
+  await act(async()=>mounted.root.findByProps({'aria-label':'PM weight'}).props.onChange({target:{value:'72.4'}}));
+  await act(async()=>mounted.root.findByType('form').props.onSubmit({preventDefault(){}}));
+  // Transport supports ID conflicts; the returned saved record is still the real component's data.
+  assert.ok(mounted.root.findByProps({'aria-expanded':'false'}));
+  await act(async()=>button(mounted,'Body · daily').props.onClick());
+  assert.equal(mounted.root.findByProps({'aria-label':'PM weight'}).props.value,72.4);
+});
+test('Week renders all seven days and two Friday pills, and performs no writes',async()=>{
+  const d=new Date();d.setDate(d.getDate()-((d.getDay()+6)%7)+4);const friday=d.toLocaleDateString('en-CA');
+  const db=database({run_plan:[{id:'run',date:friday,run_type:'easy',duration_min:40}],workout_days:[{id:'pull',name:'Upper Pull',weekday:5,is_active:true,is_daily:false}],sessions:[],runs:[],v_load_weekly:[]});
+  const Week=mountSource('components/Week.js',db);await act(async()=>{mounted=create(React.createElement(Week));});await flush();
+  const rows=mounted.root.findAll(n=>n.props['data-date']);assert.equal(rows.length,7);
+  const fridayRow=rows.find(r=>r.props['data-date']===friday);assert.match(text(fridayRow),/easy run/);assert.match(text(fridayRow),/Upper Pull/);assert.equal(fridayRow.findAll(n=>n.props.className?.includes('week-session')).length,2);assert.equal(db.writes.length,0);
+  capture('week',mounted);
+});
+function capture(name, tree) {
+  if (!process.env.PHASE3_CAPTURE) return;
+  const render=n=>typeof n==='string'?n:!n?null:React.createElement(n.type,{...Object.fromEntries(Object.entries(n.props).filter(([k])=>!k.startsWith('on'))),...(n.type==='input' && n.props.value != null ? {readOnly:true}: {})},...(n.children||[]).map(render));
+  const markup=require('react-dom/server').renderToStaticMarkup(render(tree.toJSON()));
+  const css=['app/globals.css','components/phase2-timers.css','components/phase2-dashboard.css','components/phase3.css'].map(f=>fs.readFileSync(path.join(root,f),'utf8')).join('\n');
+  const dir=path.join(root,'..','artifacts','phase3-preview');fs.mkdirSync(dir,{recursive:true});
+  fs.writeFileSync(path.join(dir,`${name}.html`),`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Phase 3 ${name} · synthetic test data</title><style>:root{--font-sans:Arial,sans-serif;--font-mono:monospace}${css}</style>${markup}`);
+}
+
+test('Today composes the cockpit in order, with one Food card and nothing after the session',async()=>{
+  const seed=gymSeed([]);seed.workout_days=[{id:'day',user_id:'test-user',name:'Upper Push',is_active:true,is_daily:false,weekday:((new Date().getDay()+6)%7)+1}];
+  Object.assign(seed,{run_plan:[{id:'run',date:date(),run_type:'easy',duration_min:40}],pain_logs:[],photos:[],daily_log:[],v_daily_nutrition:[],user_settings:[],foods:[],v_session_intensity:[],v_commute_weekly:[]});
+  const db=database(seed);const Today=mountSource('components/Today.js',db);
+  await act(async()=>{mounted=create(React.createElement(Today,{userId:'test-user',onFood(){},onPain(){},onDaily(){},onRun(){},onStart(){},subtabs:React.createElement('div',null,'Today / Progress')}));});await flush();
+  const content=text(mounted.toJSON());
+  const labels=['Today / Progress','Pain not scored cold','Daily · tendon','Body · daily','Food · today','Commute','Start run'];
+  const positions=labels.map(label=>{const p=content.indexOf(label);assert.ok(p>=0,label);return p;});
+  assert.deepEqual(positions,[...positions].sort((a,b)=>a-b));assert.equal(buttons(mounted).filter(b=>text(b).includes('Search food')).length,1);
+  const children=mounted.toJSON().children.filter(n=>typeof n!=='string');assert.equal(children.at(-1).props.className,'today-session');
+  capture('today',mounted);
+});
+test('body failed save stays expanded and retains typed values',async()=>{
+  const db=database({daily_log:[],photos:[]},q=>q.op!=='select');const Body=mountSource('components/BodyCard.js',db);
+  await act(async()=>{mounted=create(React.createElement(Body,{userId:'test-user'}));});await flush();
+  await act(async()=>mounted.root.findByProps({'aria-label':'AM weight'}).props.onChange({target:{value:'71.7'}}));
+  await act(async()=>mounted.root.findByType('form').props.onSubmit({preventDefault(){}}));
+  assert.equal(mounted.root.findByProps({'aria-label':'AM weight'}).props.value,'71.7');assert.match(text(mounted.toJSON()),/Not saved/);assert.equal(db.tables.daily_log.length,0);
+});
+test('body upload retry reuses the uploaded object and creates one photo row',async()=>{
+  let fail=true, uploads=0;
+  const db=database({daily_log:[],photos:[]},q=>fail && q.table==='photos' && q.op!=='select');
+  db.storage={from:()=>({upload:async()=>{uploads++;return {data:{},error:null};},createSignedUrl:async()=>({data:{signedUrl:'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=='}})})};
+  const Body=mountSource('components/BodyCard.js',db);await act(async()=>{mounted=create(React.createElement(Body,{userId:'test-user'}));});await flush();
+  const change=()=>mounted.root.findByProps({'aria-label':'AM photo'}).props.onChange({target:{files:[{name:'test.png',size:100,lastModified:1,type:'image/png'}],value:'test.png'}});
+  await act(change);assert.equal(db.tables.photos.length,0);assert.equal(uploads,1);fail=false;
+  await act(change);assert.equal(db.tables.photos.length,1);assert.equal(uploads,1);assert.equal(db.tables.photos[0].user_id,'test-user');
+});
+test('food saves serving-adjusted nutrition once on repeated taps',async()=>{
+  const db=database({foods:[],meal_logs:[]});const Food=mountSource('components/Food.js',db);
+  await act(async()=>{mounted=create(React.createElement(Food,{userId:'test-user',initialFood:{id:'food',name:'Test food',kcal:100,protein_g:20},onClose(){}}));});await flush();
+  await act(async()=>mounted.root.findByProps({'aria-label':'Servings'}).props.onChange({target:{value:'1.5'}}));
+  const save=button(mounted,'Add to snack').props.onClick;await act(async()=>Promise.all([save(),save()]));
+  assert.equal(db.tables.meal_logs.length,1);assert.equal(db.tables.meal_logs[0].kcal,150);assert.equal(db.tables.meal_logs[0].protein_g,30);
 });

@@ -1,80 +1,39 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { supa, TIER, fmtDate } from '../lib/supabase';
-
-function monday(offset = 0) {
-  const d = new Date();
-  d.setDate(d.getDate() - ((d.getDay() + 6) % 7) + offset * 7);
-  return d.toLocaleDateString('en-CA');
-}
+import { supa, today, fmtDate } from '../lib/supabase';
+import { shiftDate } from '../lib/phase2-data.mjs';
 
 export default function Week() {
-  const [off, setOff] = useState(0);
-  const [plan, setPlan] = useState([]);
-  const [days, setDays] = useState([]);
-
-  const start = monday(off);
-  const end = (() => { const d = new Date(start); d.setDate(d.getDate() + 6); return d.toLocaleDateString('en-CA'); })();
-
-  useEffect(() => { (async () => {
+  const [offset, setOffset] = useState(0), [data, setData] = useState(null), [error, setError] = useState('');
+  const start = shiftDate(today(), -((new Date().getDay()+6)%7)+offset*7), end = shiftDate(start,6);
+  useEffect(() => { let alive = true; setData(null); setError(''); (async () => {
     const s = supa();
-    const { data: p } = await s.from('run_plan').select('*').gte('date', start).lte('date', end).order('date');
-    setPlan(p || []);
-    const { data: d } = await s.from('workout_days').select('*').eq('is_active', true).order('weekday');
-    setDays(d || []);
-  })(); }, [off]);
-
-  const names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const block = plan[0]?.block;
-
-  return (
-    <div className="wrap">
-      <div className="row">
-        <button className="btn ghost" style={{ width: 'auto', padding: '10px 16px' }} onClick={() => setOff(o => o - 1)}>←</button>
-        <div style={{ textAlign: 'center' }}>
-          <h1 style={{ fontSize: 17 }}>{fmtDate(start)} – {fmtDate(end)}</h1>
-          <div className="muted">{off === 0 ? 'This week' : off > 0 ? `+${off} weeks` : `${off} weeks`}{block ? ` · ${block}` : ''}</div>
-        </div>
-        <button className="btn ghost" style={{ width: 'auto', padding: '10px 16px' }} onClick={() => setOff(o => o + 1)}>→</button>
-      </div>
-
-      <div style={{ marginTop: 18 }}>
-        {names.map((n, i) => {
-          const date = (() => { const d = new Date(start); d.setDate(d.getDate() + i); return d.toLocaleDateString('en-CA'); })();
-          const runs = plan.filter(p => p.date === date);
-          const lifts = days.filter(d => d.weekday === i + 1);
-          const rest = runs.length === 0 && lifts.length === 0;
-          return (
-            <div key={n} className="card">
-              <div className="row">
-                <strong>{n} {new Date(date + 'T00:00:00').getDate()}</strong>
-                {rest && <span className="muted">FULL REST — walk + mobility</span>}
-              </div>
-              {runs.map(r => (
-                <div key={r.id} style={{ marginTop: 10 }}>
-                  <div style={{ fontWeight: 600, fontSize: 15 }}>
-                    {r.run_type === 'long' ? '🏃 Long run' : r.run_type === 'threshold' ? '⚡ Threshold'
-                      : r.run_type === 'test' ? '⏱ Time trial' : r.run_type === 'race' ? '🏁 RACE' : '🏃 ' + r.run_type}
-                    {r.duration_min ? ` · ${r.duration_min} min` : ''}
-                  </div>
-                  <div style={{ marginTop: 6 }}>
-                    {r.hr_ceiling && <span className="pill">HR ≤{r.hr_ceiling}</span>}
-                    {r.hr_target_low && <span className="pill">{r.hr_target_low}–{r.hr_target_high}</span>}
-                    <span className="pill">cad 172+</span>
-                    <span className="pill">{r.warmup_type === 'full' ? 'full WU' : 'short WU'}</span>
-                  </div>
-                  {r.structure_note && <div className="cue">{r.structure_note}</div>}
-                  {r.coach_note && <div className="cue" style={{ borderLeftColor: 'var(--warn)' }}>{r.coach_note}</div>}
-                </div>
-              ))}
-              {lifts.map(l => <div key={l.id} style={{ marginTop: 8, fontWeight: 600, fontSize: 15 }}>🏋 {l.name}</div>)}
-              {!rest && runs.length === 0 && lifts.length > 0 && (
-                <div className="muted" style={{ marginTop: 6 }}>Easy run 30–40 min if the legs are good</div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
+    const results = await Promise.all([
+      s.from('run_plan').select('*').gte('date',start).lte('date',end).order('date'),
+      s.from('workout_days').select('*').eq('is_active',true).order('sort_order'),
+      s.from('sessions').select('*').gte('date',start).lte('date',end),
+      s.from('runs').select('*').gte('date',start).lte('date',end),
+      s.from('v_load_weekly').select('*').eq('week_start',start).maybeSingle(),
+    ]);
+    if (!alive) return;
+    if (results.some(r=>r.error)) { setError(results.find(r=>r.error).error.message); return; }
+    setData({ plan: results[0].data || [], days: (results[1].data || []).filter(d=>!d.is_daily && d.session_type!=='daily'), sessions: results[2].data || [], runs: results[3].data || [], load: results[4].data });
+  })().catch(e=>{if(alive)setError(e.message);}); return ()=>{alive=false;}; },[start,end]);
+  const planned = data ? data.plan.filter(p=>p.run_type!=='rest').length + data.days.length : 0;
+  const runMinutes = data?.runs.filter(r=>r.run_type!=='cycle' && !r.commute_direction).reduce((n,r)=>n+Number(r.duration_min || 0),0) || 0;
+  return <div className="wrap"><div className="row"><button className="btn ghost compact" aria-label="Previous week" onClick={()=>setOffset(x=>x-1)}>←</button><div><h1>Week</h1><p className="sub">{fmtDate(start)} – {fmtDate(end)}</p></div><button className="btn ghost compact" aria-label="Next week" onClick={()=>setOffset(x=>x+1)}>→</button></div>
+    {error && <div className="flag" role="alert">Could not load week: {error}</div>}
+    {!data && !error && <p className="muted">Loading week…</p>}
+    {data && <><div className="week-stats"><div><strong>{planned}</strong><small>Planned sessions</small></div><div><strong>{Math.round(runMinutes)}</strong><small>Run minutes logged</small></div><div><strong>{data.load?.total_load ?? '—'}</strong><small>Recorded load</small></div></div>
+    {data.plan[0]?.block && <p className="u-label">{data.plan[0].block}</p>}
+    <div className="week-list">{['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((name,i)=>{
+      const date = shiftDate(start,i), plannedRuns = data.plan.filter(p=>p.date===date && p.run_type!=='rest'), lifts=data.days.filter(d=>d.weekday===i+1);
+      // Match each planned run to at most one recorded run of that type.
+      const available = data.runs.filter(r=>r.date===date && !r.commute_direction && r.run_type!=='cycle');
+      const sessions = plannedRuns.map(r=>{ const match=available.findIndex(a=>a.run_type===r.run_type); if(match>=0)available.splice(match,1); return {id:r.id,label:`${r.run_type} run${r.duration_min ? ' · '+r.duration_min+' min' : ''}`,status:match>=0?'done':'pending',kind:'run'}; });
+      lifts.forEach(d=>{const logs=data.sessions.filter(s=>s.date===date && s.workout_day_id===d.id);sessions.push({id:d.id,label:d.name,status:logs.some(s=>s.completed_at)?'done':logs.length?'active':'pending',kind:'lift'});});
+      const status = !sessions.length ? 'rest' : sessions.every(s=>s.status==='done') ? 'done' : sessions.some(s=>s.status==='active' || s.status==='done') ? 'active' : date < today() ? 'unlogged' : 'pending';
+      return <div key={date} className={`week-day ${date===today()?'is-today':''}`} data-date={date}><div className="week-date"><strong>{name}</strong><small>{Number(date.slice(-2))}</small></div><div className="week-pills">{sessions.length ? sessions.map(s=><span className={`pill week-session ${s.kind}`} key={s.id}>{s.status==='done'?'✓ ':s.status==='active'?'◐ ':''}{s.label}</span>) : <span className="muted">Rest · daily routine only</span>}</div><span className={`week-status ${status}`} aria-label={status}>{{done:'✓',active:'◐',pending:'○',unlogged:'–',rest:'·'}[status]}</span></div>;
+    })}</div><p className="muted">✓ Completed · ◐ In progress · ○ Planned · – No log</p></>}
+  </div>;
 }

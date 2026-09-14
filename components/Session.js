@@ -1,13 +1,20 @@
 'use client';
-import { useEffect, useState } from 'react';
-import { supa, TIER, today, LOAD_UNIT, totalLoad } from '../lib/supabase';
-import { RestTimer } from './Timers';
+import { useEffect, useRef, useState } from 'react';
+import { supa, TIER, today, LOAD_UNIT } from '../lib/supabase';
+import { GymRestTimer } from './Timers';
+import { nextSet, loadLabel, recordId } from '../lib/gym.mjs';
 import { unlockTimerAudio } from '../lib/useTimer';
 
 export default function Session({ day, onExit, beepEnabled = false, userId }) {
+  const lock = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [mode, setMode] = useState('log');
+  const restPointer = `gym-rest:${userId}:${day.id}:${today()}`;
   const [items, setItems] = useState([]);
   const [idx, setIdx] = useState(0);
   const [setNo, setSetNo] = useState(1);
+  const [holdSeconds, setHoldSeconds] = useState('');
   const [weight, setWeight] = useState(0);
   const [reps, setReps] = useState(0);
   const [rir, setRir] = useState(2);
@@ -27,31 +34,37 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
   // ---- load or RESUME ----
   useEffect(() => { (async () => {
     const s = supa();
-    const { data: we } = await s.from('workout_exercises')
+    try {
+    const { data: we, error: weError } = await s.from('workout_exercises')
       .select('*, exercises(*)').eq('workout_day_id', day.id).order('order_index');
-    // Drop rows whose exercises embed came back null — they point at an exercise
-    // this account cannot read under RLS. Keeping them would crash every render
-    // below, which all assume cur.exercises is present.
+    // Fail closed when a required exercise is hidden or unavailable.
+    if (weError) throw weError;
     const all = (we || []).filter(x => x.is_enabled);
     const live = all.filter(x => x.exercises);
+    if (all.length !== live.length) throw new Error('An exercise is unavailable. Repair the programme before logging this session.');
     setSkipped(all.length - live.length);
     setItems(live);
 
-    const { data: lp } = await s.from('v_last_performance').select('*');
+    const { data: lp, error: lpError } = await s.from('v_last_performance').select('*');
+    if (lpError) throw lpError;
     const m = {}; (lp || []).forEach(r => { (m[r.exercise_id] ||= {})[r.set_number] = r; });
     setLast(m);
-    const { data: sg } = await s.from('v_progression_suggestions').select('*');
+    const { data: sg, error: sgError } = await s.from('v_progression_suggestions').select('*');
+    if (sgError) throw sgError;
     const g = {}; (sg || []).forEach(r => { g[r.exercise_id] = r; }); setSugg(g);
 
     // resume an open session from today, otherwise start one
-    const { data: open } = await s.from('sessions').select('*')
+    const { data: open, error: openError } = await s.from('sessions').select('*')
       .eq('workout_day_id', day.id).eq('date', today())
-      .is('completed_at', null).order('started_at', { ascending: false }).limit(1);
+      .order('started_at', { ascending: false, nullsFirst: false }).limit(1);
 
+    if (openError) throw openError;
     let sid;
     if (open?.length) {
       sid = open[0].id;
-      const { data: done } = await s.from('set_logs').select('*').eq('session_id', sid);
+      setFeel(open[0].feel_1_5 ?? 3); setNote(open[0].session_note || ''); setGLoad(open[0].exercise_load ?? ''); setGTe(open[0].training_effect ?? '');
+      const { data: done, error: doneError } = await s.from('set_logs').select('*').eq('session_id', sid).order('logged_at');
+      if (doneError) throw doneError;
       const L = {}; (done || []).forEach(r => { (L[r.exercise_id] ||= {})[r.set_number] = r; });
       setLogged(L);
       // jump to the first unfinished exercise/set
@@ -61,16 +74,15 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
           if (!L[live[i].exercise_id]?.[n]) { ji = i; js = n; found = true; break; }
         }
       }
-      if (!found && live.length) { ji = live.length - 1; js = live[ji].sets; }
+      if (!found && live.length) { ji = live.length - 1; js = live[ji].sets; setFinishing(true); }
       setIdx(ji); setSetNo(js);
-      // restore a running rest timer
-      const r = Number(localStorage.getItem('rest_' + sid) || 0);
-      if (r > Date.now()) setResting(Math.round((r - Date.now()) / 1000));
-    } else {
-      const { data: sess } = await s.from('sessions').insert({ workout_day_id: day.id }).select().single();
-      sid = sess?.id;
+      try {
+        const r = JSON.parse(localStorage.getItem(restPointer));
+        if (r && r.sessionId === sid && Number.isFinite(r.seconds) && r.seconds > 0 && typeof r.token === 'string') setResting(r);
+      } catch {}
     }
     setSessionId(sid);
+    } catch (e) { setItems([]); setError(e.message); }
     setLoading(false);
   })(); }, [day.id]);
 
@@ -81,8 +93,10 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
   useEffect(() => {
     if (!cur) return;
     const already = logged[cur.exercise_id]?.[setNo];
-    if (already) { setWeight(Number(already.weight_kg ?? 0)); setReps(Number(already.reps ?? 0)); setRir(already.rir ?? 2); return; }
+    setHoldSeconds(String(already?.hold_seconds ?? cur.hold_seconds ?? ''));
+    if (already) { setMode('edit'); setWeight(Number(already.weight_kg ?? 0)); setReps(Number(already.reps ?? 0)); setRir(already.rir ?? 2); return; }
 
+    setMode('log');
     // 1. carry forward the weight already used for THIS exercise in THIS session
     const thisSession = logged[cur.exercise_id] || {};
     const earlier = Object.keys(thisSession).map(Number).filter(n => n < setNo).sort((a, b) => b - a)[0];
@@ -96,85 +110,104 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
     // 2. otherwise last week's number for this set, or the suggestion, or the seeded start
     const prev = last[cur.exercise_id]?.[setNo] || last[cur.exercise_id]?.[1];
     const s = sugg[cur.exercise_id];
-    setWeight(Number(s?.suggested_weight ?? prev?.weight_kg ?? cur.target_weight_kg ?? 0));
-    setReps(Number(s ? (cur.rep_min || 0) : (prev?.reps ?? cur.rep_min ?? 0)));
+    setWeight(Number(prev?.weight_kg ?? cur.target_weight_kg ?? 0));
+    setReps(Number(prev?.reps ?? cur.rep_min ?? 0));
     setRir(2);
   }, [idx, setNo, items, last, sugg, logged]);
 
   if (loading) return <div className="wrap"><p className="muted">Loading session…</p></div>;
-  if (!cur) return <div className="wrap"><p className="muted">No enabled exercises.</p>
-    <button className="btn ghost" onClick={onExit}>Back</button></div>;
+  if (!cur) return <div className="wrap"><p className="muted" role="alert">{error || 'No enabled exercises.'}</p>
+    <button className="btn ghost" disabled={busy} onClick={onExit}>Back</button></div>;
 
   const isHold = !!cur.hold_seconds;
-  const restSec = ex.category === 'rehab' ? 120 : (cur.rep_max && cur.rep_max > 12 ? 75 : 165);
+  const restSec = Number(cur.rest_seconds) || 0;
   const tier = TIER[ex.priority_tier] || TIER.B;
   const unit = LOAD_UNIT[ex.load_unit] || LOAD_UNIT.total;
   const noWeight = ex.load_unit === 'bodyweight' || ex.load_unit === 'band';
-  const editing = !!logged[cur.exercise_id]?.[setNo];
+  const editing = mode === 'edit';
   const totalSets = items.reduce((a, b) => a + b.sets, 0);
   const doneSets = Object.values(logged).reduce((a, o) => a + Object.keys(o).length, 0);
 
-  function startRest(sec) {
-    localStorage.setItem('rest_' + sessionId, String(Date.now() + sec * 1000));
-    setResting(sec);
+  function startRest(sec, sid, savedId) {
+    if (sec <= 0) return;
+    const value = { seconds: sec, sessionId: sid, token: `timer:${userId}:gym-rest:${sid}:${savedId}:${Date.now()}` };
+    try { localStorage.setItem(restPointer, JSON.stringify(value)); } catch {}
+    setResting(value);
   }
-  function clearRest() { localStorage.removeItem('rest_' + sessionId); setResting(0); }
-
+  function clearRest() {
+    try { localStorage.removeItem(restPointer); if (resting) localStorage.removeItem(resting.token); } catch {}
+    setResting(0);
+  }
   async function logSet() {
+    if (lock.current) return;
     if (beepEnabled) unlockTimerAudio();
-    const s = supa();
-    const row = {
-      session_id: sessionId, exercise_id: cur.exercise_id, set_number: setNo,
-      weight_kg: isHold ? null : weight, reps: isHold ? null : reps,
-      hold_seconds: isHold ? cur.hold_seconds : null,
-      rir: setNo === cur.sets ? rir : null,
-    };
-    const existing = logged[cur.exercise_id]?.[setNo];
-    let saved;
-    if (existing) {
-      const { data } = await s.from('set_logs').update(row).eq('id', existing.id).select().single();
-      saved = data;
-    } else {
-      const { data } = await s.from('set_logs').insert(row).select().single();
-      saved = data;
-    }
-    setLogged(L => ({ ...L, [cur.exercise_id]: { ...(L[cur.exercise_id] || {}), [setNo]: saved } }));
-
-    // remember this weight as the exercise's working weight
-    if (!isHold && weight > 0 && weight !== Number(cur.target_weight_kg)) {
-      await s.from('workout_exercises').update({ target_weight_kg: weight }).eq('id', cur.id);
-      setItems(its => its.map(i => i.id === cur.id ? { ...i, target_weight_kg: weight } : i));
-    }
-
-    if (existing) return; // editing a past set shouldn't jump you forward
-    if (setNo < cur.sets) { setSetNo(setNo + 1); startRest(restSec); }
-    else if (idx < items.length - 1) { setIdx(idx + 1); setSetNo(1); startRest(restSec); }
-    else setFinishing(true);
+    lock.current = true; setBusy(true); setError('');
+    try {
+      if (isHold && (!Number.isInteger(Number(holdSeconds)) || Number(holdSeconds) <= 0)) throw new Error('Enter a positive whole number of hold seconds.');
+      if (!isHold && (reps === '' || !Number.isInteger(Number(reps)) || Number(reps) <= 0)) throw new Error('Enter a positive whole number of reps.');
+      if (!noWeight && !isHold && (weight === '' || !Number.isFinite(Number(weight)) || Number(weight) < 0)) throw new Error('Enter a valid load.');
+      const db = supa(); let sid = sessionId;
+      if (!sid) {
+        sid = await recordId(`gym-session:${userId}:${day.id}:${today()}`);
+        const result = await db.from('sessions').upsert({ id: sid, user_id: userId, date: today(), workout_day_id: day.id, started_at: new Date().toISOString() }, { onConflict: 'id', ignoreDuplicates: true });
+        if (result.error) throw result.error;
+        setSessionId(sid);
+      }
+      const row = { user_id: userId, session_id: sid, exercise_id: cur.exercise_id, set_number: setNo, weight_kg: isHold || noWeight ? null : Number(weight), reps: isHold ? null : Number(reps), hold_seconds: isHold ? Number(holdSeconds) : null, rir: isHold ? null : rir };
+      const existing = logged[cur.exercise_id]?.[setNo]; let result;
+      if (editing && existing) {
+        result = await db.from('set_logs').update(row).eq('id',existing.id).eq('user_id',userId).select().single();
+      } else {
+        const id = await recordId(`gym-set:${userId}:${sid}:${cur.exercise_id}:${setNo}`);
+        const write = await db.from('set_logs').upsert({ ...row, id }, { onConflict: 'id', ignoreDuplicates: true });
+        if (write.error) throw write.error;
+        result = await db.from('set_logs').select('*').eq('id',id).eq('user_id',userId).single();
+      }
+      if (result.error) throw result.error;
+      if (!result.data) throw new Error('The saved set could not be confirmed. Retry.');
+      const updated = { ...logged, [cur.exercise_id]: { ...(logged[cur.exercise_id] || {}), [setNo]: result.data } };
+      setLogged(updated);
+      if (editing) return;
+      const next = nextSet(items, updated);
+      if (next) { setIdx(next.idx); setSetNo(next.setNo); startRest(restSec, sid, result.data.id); }
+      else setFinishing(true);
+    } catch (e) { setError(`Not saved: ${e.message}`); }
+    finally { lock.current = false; setBusy(false); }
   }
-
   async function deleteSet() {
-    const existing = logged[cur.exercise_id]?.[setNo];
-    if (!existing) return;
-    await supa().from('set_logs').delete().eq('id', existing.id);
-    setLogged(L => {
-      const c = { ...(L[cur.exercise_id] || {}) }; delete c[setNo];
-      return { ...L, [cur.exercise_id]: c };
-    });
+    if (lock.current || !editing) return;
+    lock.current = true; setBusy(true); setError('');
+    try {
+      const { error } = await supa().from('set_logs').delete().eq('user_id',userId).eq('session_id',sessionId).eq('exercise_id',cur.exercise_id).eq('set_number',setNo);
+      if (error) throw error;
+      setLogged(L => { const c = { ...(L[cur.exercise_id] || {}) }; delete c[setNo]; return { ...L, [cur.exercise_id]: c }; });
+      setMode('log');
+      const result = await supa().from('sessions').update({ completed_at: null }).eq('id',sessionId).eq('user_id',userId);
+      if (result.error) throw result.error;
+    } catch (e) { setError(`Could not delete set: ${e.message}`); }
+    finally { lock.current = false; setBusy(false); }
   }
 
   async function finish() {
-    await supa().from('sessions').update({
+    if (lock.current || !sessionId) return;
+    lock.current = true; setBusy(true); setError('');
+    try {
+    const { error } = await supa().from('sessions').update({
       completed_at: new Date().toISOString(), feel_1_5: feel, session_note: note || null,
       exercise_load: gLoad === '' ? null : Number(gLoad),
       training_effect: gTe === '' ? null : Number(gTe),
-    }).eq('id', sessionId);
-    clearRest();
-    onExit();
+    }).eq('id', sessionId).eq('user_id',userId).select().single();
+    if (error) throw error;
+    clearRest(); onExit();
+    } catch (e) { setError(`Not saved: ${e.message}`); }
+    finally { lock.current = false; setBusy(false); }
   }
+
+  if (resting) return <div className="wrap gym-rest"><button className="btn ghost compact" disabled={busy} onClick={onExit}>Pause</button><h1>Rest</h1><p className="sub">Up next · {ex.name} · set {setNo}</p><GymRestTimer key={resting.token} seconds={resting.seconds} storageKey={resting.token} nextSet={setNo} onDone={clearRest} beepEnabled={beepEnabled}/></div>;
 
   if (finishing) return (
     <div className="wrap">
-      <h1>Finish session</h1>
+      <h1>Finish session</h1>{error && <div className="flag" role="alert">{error}</div>}
       <p className="sub">{day.name} · {doneSets} of {totalSets} sets logged</p>
       <div className="card">
         <div className="field">
@@ -198,7 +231,7 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
         <div className="field"><label>Notes for the diary</label>
           <textarea rows={3} value={note} onChange={e => setNote(e.target.value)}
             placeholder="Energy, niggles, what felt off…" /></div>
-        <button className="btn" onClick={finish}>Save session</button>
+        <button className="btn" disabled={busy || !sessionId} onClick={finish}>Save session</button>
         <button className="btn ghost" style={{ marginTop: 10 }}
           onClick={() => setFinishing(false)}>← Back to session</button>
       </div>
@@ -210,13 +243,13 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
   const exLogged = logged[cur.exercise_id] || {};
 
   return (
-    <div className="wrap">
+    <div className="wrap active-set" data-mode={mode}>
       <div className="row" style={{ marginBottom: 12 }}>
-        <button className="btn ghost" style={{ width: 'auto', padding: '8px 14px' }} onClick={onExit}>
+        <button className="btn ghost" style={{ width: 'auto', padding: '8px 14px' }} disabled={busy} onClick={onExit}>
           ← Pause</button>
         <span className="muted">{doneSets}/{totalSets} sets</span>
         <button className="btn ghost" style={{ width: 'auto', padding: '8px 14px' }}
-          onClick={() => setFinishing(true)}>Finish</button>
+          disabled={busy} onClick={() => setFinishing(true)}>Finish</button>
       </div>
 
       <div className="muted" style={{ marginBottom: 12, fontSize: 12 }}>
@@ -230,23 +263,14 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
         </div>
       )}
 
-      {resting > 0 && (
-        <>
-          <p className="sub">Resting — next: {ex.name}, set {setNo}</p>
-          <RestTimer seconds={resting} onDone={clearRest} beepEnabled={beepEnabled} userId={userId} />
-          <button className="btn" onClick={clearRest}>Ready now</button>
-          <div style={{ height: 16 }} />
-        </>
-      )}
 
-      {/* exercise navigation */}
       <div className="card" style={{ padding: 12 }}>
         <div className="row">
           <button className="btn ghost" style={{ width: 'auto', padding: '8px 14px' }}
-            disabled={idx === 0} onClick={() => { setIdx(idx - 1); setSetNo(1); }}>←</button>
+            disabled={busy || idx === 0} onClick={() => { setIdx(idx - 1); setSetNo(1); }}>←</button>
           <span className="muted">{idx + 1} of {items.length}</span>
           <button className="btn ghost" style={{ width: 'auto', padding: '8px 14px' }}
-            disabled={idx === items.length - 1} onClick={() => { setIdx(idx + 1); setSetNo(1); }}>→</button>
+            disabled={busy || idx === items.length - 1} onClick={() => { setIdx(idx + 1); setSetNo(1); }}>→</button>
         </div>
       </div>
 
@@ -255,7 +279,7 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
           <div>
             <div style={{ fontSize: 20, fontWeight: 700, lineHeight: 1.2 }}>{ex.name}</div>
             <div className="muted" style={{ marginTop: 3 }}>
-              Set {setNo} of {cur.sets}{ex.tempo ? ` · ${ex.tempo}` : ''}
+              Set {setNo} of {cur.sets} <span className="pill">RIR {ex.rir_target || 'not prescribed'}</span>{ex.tempo ? ` · ${ex.tempo}` : ''}
             </div>
           </div>
           <span className="tier" style={{ background: tier.color, color: tier.text }}>{tier.label}</span>
@@ -266,25 +290,19 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
           {Array.from({ length: cur.sets }, (_, i) => i + 1).map(n => {
             const l = exLogged[n];
             return (
-              <button key={n} className="pill"
-                style={{
-                  cursor: 'pointer', border: 0,
-                  background: n === setNo ? 'var(--accent)' : l ? '#1f3318' : '#1d1d21',
-                  color: n === setNo ? '#fff' : l ? '#a5d894' : '#a8a49d',
-                }}
-                onClick={() => setSetNo(n)}>
-                {n}{l ? `: ${l.hold_seconds ? l.hold_seconds + 's' : `${l.reps}×${l.weight_kg ?? 0}${noWeight ? '' : unit.short === 'total' ? '' : unit.short}`}` : ''}
+              <button key={n} className={`setchip ${l ? n === setNo && editing ? 'editing' : 'done' : 'pending'}`} disabled={busy} aria-label={`Set ${n}${l ? ', completed' : ', pending'}`} aria-pressed={n === setNo} onClick={() => setSetNo(n)}>
+                {l ? '✓ ' : ''}{n}{l ? ` · ${l.hold_seconds ? l.hold_seconds+'s' : l.reps+' reps'} · ${loadLabel(l.weight_kg, ex.load_unit)}` : ''}
               </button>
             );
           })}
         </div>
 
-        {editing && <div className="flag" style={{ marginTop: 10 }}>
+        {editing && <div className="editstrip" style={{ marginTop: 10 }}>
           Editing a logged set. Save overwrites it; nothing jumps forward.</div>}
 
         {isHold ? (
           <>
-            <div className="timer" style={{ margin: '20px 0 6px' }}>{cur.hold_seconds}s</div>
+            <label className="u-label">Hold · seconds<input aria-label="Hold seconds" inputMode="decimal" value={holdSeconds} disabled={busy} onChange={e => setHoldSeconds(e.target.value)}/></label>
             <div className="muted" style={{ textAlign: 'center' }}>hold at ~70%</div>
           </>
         ) : (
@@ -292,14 +310,12 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
             {!noWeight && (
               <>
                 <div className="step" style={{ marginTop: 18 }}>
-                  <button onClick={() => setWeight(w => Math.max(0, +(w - (ex.increment_kg || 2.5)).toFixed(2)))}>−</button>
-                  <div className="val">{weight}<span className="unit"> kg {unit.short}</span></div>
-                  <button onClick={() => setWeight(w => +(w + (ex.increment_kg || 2.5)).toFixed(2))}>+</button>
+                  <button disabled={busy} onClick={() => setWeight(w => Math.max(0, +(Number(w) - (ex.increment_kg || 2.5)).toFixed(2)))}>−</button>
+                  <input aria-label="Load" inputMode="decimal" value={weight} disabled={busy} onChange={e => setWeight(e.target.value)}/>
+                  <button disabled={busy} onClick={() => setWeight(w => +(Number(w) + (ex.increment_kg || 2.5)).toFixed(2))}>+</button>
                 </div>
                 <div className="muted" style={{ textAlign: 'center', marginTop: 6 }}>
-                  {totalLoad(weight, ex.load_unit)
-                    ? `${totalLoad(weight, ex.load_unit)} kg total across both hands`
-                    : unit.help}
+                  {loadLabel(weight, ex.load_unit)} · {unit.help}
                 </div>
               </>
             )}
@@ -307,24 +323,24 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
               <div className="muted" style={{ textAlign: 'center', margin: '16px 0' }}>{unit.help}</div>
             )}
             <div className="step" style={{ marginTop: 10 }}>
-              <button onClick={() => setReps(r => Math.max(0, r - 1))}>−</button>
-              <div className="val">{reps}<span className="unit"> reps</span></div>
-              <button onClick={() => setReps(r => r + 1)}>+</button>
+              <button disabled={busy} onClick={() => setReps(r => Math.max(0, Number(r) - 1))}>−</button>
+              <input aria-label="Reps" inputMode="decimal" value={reps} disabled={busy} onChange={e => setReps(e.target.value)}/>
+              <button disabled={busy} onClick={() => setReps(r => Number(r) + 1)}>+</button>
             </div>
           </>
         )}
 
         <div className="last" style={{ marginTop: 14 }}>
           {prev
-            ? `Last time, set ${setNo}: ${prev.reps ?? prev.hold_seconds + 's'}${prev.weight_kg ? ` × ${prev.weight_kg}kg ${unit.short}` : ''}`
+            ? `Last time, set ${setNo}: ${prev.reps ?? prev.hold_seconds + 's'} · ${loadLabel(prev.weight_kg,ex.load_unit)}`
             : 'First time — this set is calibration. Light warm-up set, then a best guess.'}
           {cur.rep_min ? ` · target ${cur.rep_min}${cur.rep_max !== cur.rep_min ? '–' + cur.rep_max : ''}` : ''}
         </div>
 
         {s && !editing && (
           <div className="flag ok" style={{ marginTop: 12 }}>
-            ⬆ You hit the top of the range at 2+ RIR. Suggested {s.suggested_weight}kg, reps back to {s.reset_to_reps}.
-            One acceptance per session — one variable at a time.
+            ⬆ You hit the top of the range at 2+ RIR. Suggested {loadLabel(s.suggested_weight, ex.load_unit)}, reps back to {s.reset_to_reps}.
+            Change the load above if you choose to take this suggestion.
           </div>
         )}
 
@@ -352,11 +368,12 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
         )}
       </div>
 
-      <button className="btn" onClick={logSet}>
+      {error && <div className="flag" role="alert">{error}</div>}
+      <button className="btn" disabled={busy} onClick={logSet}>
         {editing ? `✓ Update set ${setNo}` : `✓ Log set ${setNo}`}
       </button>
       {editing && (
-        <button className="btn ghost" style={{ marginTop: 10 }} onClick={deleteSet}>
+        <button className="btn ghost" style={{ marginTop: 10 }} disabled={busy} onClick={deleteSet}>
           Delete set {setNo}
         </button>
       )}
