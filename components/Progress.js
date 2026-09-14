@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { supa, fmtDate } from '../lib/supabase';
 
-function Spark({ data, color = '#e8462a', h = 60 }) {
+function Spark({ data, color = 'var(--accent)', h = 60 }) {
   if (!data || data.length < 2) return <div className="muted">Not enough data yet.</div>;
   const vals = data.map(d => d.v);
   const min = Math.min(...vals), max = Math.max(...vals), rng = max - min || 1;
@@ -57,7 +57,7 @@ export default function Progress() {
           <div className="muted">Marathon projection</div>
           <div className="big" style={{ margin: '6px 0' }}>{proj.projected_time}</div>
           <div className="muted">{proj.pace_per_km} min/km easy · {proj.basis}</div>
-          <div className="cue" style={{ borderLeftColor: '#e0a53a' }}>{proj.verdict}</div>
+          <div className="cue" style={{ borderLeftColor: 'var(--warn)' }}>{proj.verdict}</div>
         </div>
       )}
 
@@ -93,7 +93,7 @@ export default function Progress() {
             Last 7 days {acwr.acute} vs 4-week average {acwr.chronic_avg}
           </div>
           <div className="cue" style={{
-            borderLeftColor: acwr.ratio > 1.5 ? '#e8462a' : acwr.ratio > 1.3 ? '#e0a53a' : '#22401b' }}>
+            borderLeftColor: acwr.ratio > 1.5 ? 'var(--accent)' : acwr.ratio > 1.3 ? 'var(--warn)' : '#22401b' }}>
             {acwr.verdict}
           </div>
         </div>

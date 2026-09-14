@@ -64,7 +64,7 @@ export default function Week() {
                     <span className="pill">{r.warmup_type === 'full' ? 'full WU' : 'short WU'}</span>
                   </div>
                   {r.structure_note && <div className="cue">{r.structure_note}</div>}
-                  {r.coach_note && <div className="cue" style={{ borderLeftColor: '#e0a53a' }}>{r.coach_note}</div>}
+                  {r.coach_note && <div className="cue" style={{ borderLeftColor: 'var(--warn)' }}>{r.coach_note}</div>}
                 </div>
               ))}
               {lifts.map(l => <div key={l.id} style={{ marginTop: 8, fontWeight: 600, fontSize: 15 }}>🏋 {l.name}</div>)}

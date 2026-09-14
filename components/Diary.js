@@ -47,7 +47,7 @@ export default function Diary() {
             <div style={{ marginTop: 9 }}><span className="pill">felt {FEEL[it.o.feel_1_5]}</span></div>
           )}
           {(it.o.notes || it.o.session_note) && (
-            <div className="cue" style={{ borderLeftColor: '#3a3a40' }}>{it.o.notes || it.o.session_note}</div>
+            <div className="cue" style={{ borderLeftColor: 'var(--inset-border)' }}>{it.o.notes || it.o.session_note}</div>
           )}
           {it.pain && (
             <div style={{ marginTop: 8 }}>

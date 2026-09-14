@@ -29,7 +29,7 @@ export function RestTimer({ seconds, onDone }) {
   }, [seconds]);
   return (
     <div className="card">
-      <div className="timer" style={{ color: left <= 10 ? '#e8462a' : '#f0efec' }}>{mmss(left)}</div>
+      <div className="timer" style={{ color: left <= 10 ? 'var(--accent)' : '#f0efec' }}>{mmss(left)}</div>
       <div className="row" style={{ marginTop: 12 }}>
         <button className="btn ghost" onClick={() => { end.current += 30000; setLeft(l => l + 30); }}>+30s</button>
         <button className="btn ghost" onClick={() => { end.current = Date.now(); setLeft(0); }}>Skip</button>
@@ -112,7 +112,7 @@ export function WarmupTimer({ type = 'short', onClose }) {
     <div className="card key">
       <div className="muted">Step {i + 1} of {seq.length}</div>
       <div style={{ fontSize: 19, fontWeight: 650, margin: '8px 0 14px', lineHeight: 1.3 }}>{seq[i].n}</div>
-      <div className="timer" style={{ color: left <= 5 ? '#e8462a' : '#f0efec' }}>{mmss(left)}</div>
+      <div className="timer" style={{ color: left <= 5 ? 'var(--accent)' : '#f0efec' }}>{mmss(left)}</div>
       <div className="row" style={{ marginTop: 14 }}>
         <button className="btn ghost" onClick={() => setI(x => x + 1)}>Skip step</button>
         <button className="btn ghost" onClick={onClose}>Exit</button>

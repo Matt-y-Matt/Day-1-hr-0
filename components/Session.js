@@ -243,7 +243,7 @@ export default function Session({ day, onExit }) {
               Set {setNo} of {cur.sets}{ex.tempo ? ` · ${ex.tempo}` : ''}
             </div>
           </div>
-          <span className="tier" style={{ background: tier.color }}>{tier.label}</span>
+          <span className="tier" style={{ background: tier.color, color: tier.text }}>{tier.label}</span>
         </div>
 
         {/* set chips — tap any to review or fix */}
@@ -254,7 +254,7 @@ export default function Session({ day, onExit }) {
               <button key={n} className="pill"
                 style={{
                   cursor: 'pointer', border: 0,
-                  background: n === setNo ? '#e8462a' : l ? '#1f3318' : '#1d1d21',
+                  background: n === setNo ? 'var(--accent)' : l ? '#1f3318' : '#1d1d21',
                   color: n === setNo ? '#fff' : l ? '#a5d894' : '#a8a49d',
                 }}
                 onClick={() => setSetNo(n)}>
@@ -314,12 +314,12 @@ export default function Session({ day, onExit }) {
         )}
 
         {ex.cue_execution && <div className="cue">{ex.cue_execution}</div>}
-        {ex.cue_mistake && <div className="cue" style={{ borderLeftColor: '#e0a53a' }}>
+        {ex.cue_mistake && <div className="cue" style={{ borderLeftColor: 'var(--warn)' }}>
           <strong>Common mistake:</strong> {ex.cue_mistake}</div>}
-        {ex.feel_target && <div className="cue" style={{ borderLeftColor: '#5aa9e6' }}>
+        {ex.feel_target && <div className="cue" style={{ borderLeftColor: 'var(--info)' }}>
           <strong>Should feel:</strong> {ex.feel_target}</div>}
         {ex.priority_tier === 'S' && ex.go_ham_tips && (
-          <div className="cue" style={{ borderLeftColor: '#e8462a', marginTop: 10 }}>
+          <div className="cue" style={{ borderLeftColor: 'var(--accent)', marginTop: 10 }}>
             <strong>S-tier — go ham:</strong> {ex.go_ham_tips}</div>)}
 
         {setNo === cur.sets && !isHold && (

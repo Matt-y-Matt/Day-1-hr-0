@@ -57,12 +57,21 @@ export default function Page() {
       {view === 'progress' && <Progress />}
       {view === 'diary' && <Diary />}
       {view === 'export' && <ExportPanel />}
-      <div className="wrap" style={{ paddingTop: 0, paddingBottom: 8, textAlign: 'center' }}>
-        <span className="muted" style={{ fontSize: 11, opacity: .5 }}>{BUILD}</span>
-        <span className="muted" style={{ fontSize: 11, opacity: .5 }}> · </span>
-        <button onClick={async () => { await supa().auth.signOut(); location.reload(); }}
-          style={{ background: 'none', border: 0, color: '#8d8a83', fontSize: 11,
-                   opacity: .5, cursor: 'pointer', padding: 0 }}>Sign out</button>
+      <div className="wrap" style={{ paddingTop: 0, paddingBottom: 8 }}>
+        <div className="card" style={{ marginTop: 8 }}>
+          <div className="row">
+            <div>
+              <div style={{ fontSize: 13 }}>{user.email}</div>
+              <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{BUILD}</div>
+            </div>
+            <button className="btn ghost" style={{ width: 'auto', padding: '10px 18px' }}
+              onClick={async () => {
+                if (!confirm('Sign out on this device?')) return;
+                await supa().auth.signOut();
+                location.reload();
+              }}>Sign out</button>
+          </div>
+        </div>
       </div>
       <nav className="nav">
         {TABS.map(t => (

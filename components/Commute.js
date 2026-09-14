@@ -67,7 +67,7 @@ export default function Commute() {
             {l.carried_load_kg && <span className="pill">+{l.carried_load_kg} kg</span>}
           </div>
           {l.hr_avg && (
-            <div className="cue" style={{ borderLeftColor: l.hr_avg > 135 ? '#e0a53a' : '#22401b' }}>
+            <div className="cue" style={{ borderLeftColor: l.hr_avg > 135 ? 'var(--warn)' : '#22401b' }}>
               {l.intensity_read}
             </div>
           )}

@@ -53,7 +53,7 @@ export default function Today({ onStart }) {
             {plan.duration_min > 45 && <span className="pill">LMNT</span>}
           </div>
           {plan.structure_note && <div className="cue">{plan.structure_note}</div>}
-          {plan.coach_note && <div className="cue" style={{ borderLeftColor: '#e0a53a' }}>{plan.coach_note}</div>}
+          {plan.coach_note && <div className="cue" style={{ borderLeftColor: 'var(--warn)' }}>{plan.coach_note}</div>}
           <button className="btn" style={{ marginTop: 14 }}
             onClick={() => setWarm(plan.warmup_type || 'short')}>Start warm-up</button>
         </div>
@@ -115,7 +115,7 @@ function DayCard({ day, onStart }) {
           const tr = TIER[i.exercises.priority_tier] || TIER.B;
           return (
             <div key={i.id} className="row" style={{ marginBottom: 7, justifyContent: 'flex-start' }}>
-              <span className="tier" style={{ background: tr.color }}>{tr.label}</span>
+              <span className="tier" style={{ background: tr.color, color: tr.text }}>{tr.label}</span>
               <span style={{ fontSize: 14, flex: 1 }}>{i.exercises.name}
                 {i.exercises.load_unit === 'per_hand' &&
                   <span className="muted" style={{ fontSize: 11 }}> · per hand</span>}</span>
@@ -127,7 +127,7 @@ function DayCard({ day, onStart }) {
         })}
         {off.map(i => (
           <div key={i.id} className="row disabled" style={{ marginBottom: 7, justifyContent: 'flex-start' }}>
-            <span className="tier" style={{ background: '#3a3a40' }}>—</span>
+            <span className="tier" style={{ background: 'var(--inset-border)' }}>—</span>
             <span style={{ fontSize: 14, flex: 1, textDecoration: 'line-through' }}>{i.exercises.name}</span>
           </div>
         ))}
