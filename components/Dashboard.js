@@ -34,7 +34,7 @@ export default function Dashboard({ userId, revision, onPain, onRun, onDaily, on
           const { data: baseItems, error } = await s.from('workout_exercises').select('*, exercises(name)').eq('workout_day_id', day.id).eq('is_enabled', true).order('order_index');
           if (error) throw error;
           const session = sessions.find(x => x.workout_day_id === day.id && (!x.schedule_ref || x.schedule_ref===day.schedule_ref) && (day.is_daily || (x.started_at && !x.completed_at)));
-          const items=day.is_daily?baseItems:session?.workout_snapshot||(await loadWorkout(day,userId)).items.filter(x=>x.is_enabled);
+          const items=day.is_daily?baseItems:(session?.workout_snapshot||(await loadWorkout(day,userId)).items).filter(x=>x.is_enabled);
           let logs = [];
           if (session) { const r = await s.from('set_logs').select('exercise_id,set_number').eq('session_id', session.id); if (r.error) throw r.error; logs = r.data || []; }
           return { day, session, items: items || [], ...sessionProgress(items || [], logs) };

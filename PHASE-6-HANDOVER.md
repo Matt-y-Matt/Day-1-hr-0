@@ -27,7 +27,7 @@ Existing two sessions were given a snapshot of their then-current programme to f
 
 ## Verification
 
-- 53 tests passed, including settings failures, swap snapshot capture, resumed snapshot isolation, workout revision errors, private photo URL handling, exact-date photo metrics, running filters and recorded Progress rendering.
+- 54 tests passed, including settings failures, swap snapshot capture, resumed snapshot isolation, workout revision errors, private photo URL handling, exact-date photo metrics, running filters and recorded Progress rendering.
 - Authenticated SQL tests passed and were rolled back: programme revision updates, stale-save rejection, snapshot preservation, today-only scope, started-workout rejection, set snapshot enforcement, cross-account isolation and zero-distance projection robustness.
 - `npx next build` passed; phone-sized synthetic editor and Progress screens inspected. Production checked after release.
 - Existing unrelated Supabase warnings remain: nine legacy functions with [mutable search paths](https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable) and leaked-password protection. The two Progress functions now have fixed search paths.
@@ -35,3 +35,5 @@ Existing two sessions were given a snapshot of their then-current programme to f
 ## Boundaries
 
 Daily rehab-template editing is excluded from the workout editor; this phase covers the lifting programme. Historical photos are selected through the comparison controls; uploads remain in Today. Workout save retries after a lost successful response produce a revision conflict and require reload, rather than writing duplicate audit records.
+
+Disabled alternatives can swap places with the selected exercise; both suggested loads are cleared, and the displaced exercise remains disabled with a swap reason. Started-session dashboard counts exclude disabled snapshot slots.
