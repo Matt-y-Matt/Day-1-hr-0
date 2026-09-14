@@ -1,5 +1,10 @@
 # Matt's Training App — context for Claude Code
 
+> Current handover: read `PHASE-2-HANDOVER.md` first. Phase 2 in the Claude
+> handover means the daily path (Phase 1 in the design spec). It is now implemented
+> on the Phase 2 branch. Sections below describe the original app and include
+> historical programme context; they are not verified deployment/account status.
+
 Personal training app. Single user (Matt). Mobile-first PWA.
 Tracks marathon training, strength, tendon rehab, commutes, and body metrics
 for the Standard Chartered Singapore Marathon, **5 December 2026**.
@@ -14,7 +19,7 @@ for the Standard Chartered Singapore Marathon, **5 December 2026**.
 - Vercel for hosting
 - No Tailwind. Plain CSS in `app/globals.css`, class-based.
 
-**Auth:** Supabase magic link. Anon key comes from `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
+**Auth:** Supabase email/password. Publishable key comes from `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
 falling back to a one-time setup screen that stores it in `localStorage` under `sb_key`.
 See `lib/supabase.js`.
 
@@ -22,8 +27,9 @@ See `lib/supabase.js`.
 
 ## ARCHITECTURE
 
-Single route (`app/page.js`) with client-side tab state. Six tabs:
-Today · Week · Log · Progress · Diary · Export. Plus a full-screen Session view.
+Single route (`app/page.js`) with client-side state. Four tabs:
+Dashboard · Week · Diary · Settings. Today and Progress are Dashboard subviews;
+Pain, Daily block, Warm-up, general logs, Session and Export open as overlays.
 
 **Core principle: the programme lives in database rows, not in code.**
 Changing a workout means editing `workout_exercises`, never editing a component.
@@ -140,5 +146,5 @@ Design tokens and the full component CSS are ALREADY BUILT in
 app/globals.css (build v2.1). Use the existing classes — do not
 invent new ones or write inline hex values.
 
-Build order: Phase 2 (60-second path) → Phase 3 (gym loop) →
-Phase 4 (rescheduling) → Phase 5 (logging depth) → Phase 6 (long tail).
+Phase names in this file historically ran one ahead of the design spec.
+Use named scope: daily path → gym loop → rescheduling → logging depth → long tail.

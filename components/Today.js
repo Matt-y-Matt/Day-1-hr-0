@@ -3,24 +3,33 @@ import { useEffect, useState } from 'react';
 import { supa, TIER, today, fmtDate } from '../lib/supabase';
 import { WarmupTimer } from './Timers';
 import Commute from './Commute';
+import { latestPain, PAIN_MOVEMENTS } from '../lib/phase2-data.mjs';
 
-export default function Today({ onStart }) {
+export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEnabled }) {
   const [days, setDays] = useState([]);
   const [plan, setPlan] = useState(null);
   const [pain, setPain] = useState([]);
   const [warm, setWarm] = useState(null);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
   const t = today();
   const wd = ((new Date().getDay() + 6) % 7) + 1; // 1=Mon
 
   useEffect(() => { (async () => {
     const s = supa();
-    const { data: d } = await s.from('workout_days').select('*').eq('weekday', wd).eq('is_active', true);
-    setDays(d || []);
-    const { data: p } = await s.from('run_plan').select('*').eq('date', t);
+    const { data: d, error: de } = await s.from('workout_days').select('*').eq('weekday', wd).eq('is_active', true);
+    if (de) setError(de.message);
+    setDays((d || []).filter(day => !day.is_daily && day.session_type !== 'daily'));
+    const { data: p, error: pe } = await s.from('run_plan').select('*').eq('date', t);
+    if (pe) setError(pe.message);
     setPlan(p?.[0] || null);
-    const { data: pl } = await s.from('pain_logs').select('*').eq('date', t);
+    const { data: pl, error: ple } = await s.from('pain_logs').select('*').eq('date', t);
+    if (ple) setError(ple.message);
     setPain(pl || []);
+    setLoading(false);
   })(); }, []);
+
+  if (loading) return <div className="wrap"><h1>Today</h1><p className="muted">Loading today’s programme…</p></div>;
 
   const daysToRace = Math.ceil((new Date('2026-12-05') - new Date()) / 86400000);
 
@@ -29,13 +38,15 @@ export default function Today({ onStart }) {
       <h1>{new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</h1>
       <p className="sub">{daysToRace} days to SCSM</p>
 
-      {pain.length === 0 && (
+      {error && <div className="flag" role="alert">Could not load Today: {error}</div>}
+      {!error && !PAIN_MOVEMENTS.every(m => latestPain(pain, t)[m]?.score != null) && (
         <div className="flag">Morning pain check not logged. Score it cold, before you load anything —
-          that is the reading the return criteria run on.</div>
+          that is the reading the return criteria run on.<button className="btn ghost" onClick={onPain}>Log dorsiflexion + eversion</button></div>
       )}
 
-      {warm && <WarmupTimer type={warm} onClose={() => setWarm(null)} />}
+      {warm && <WarmupTimer type={warm} onClose={() => setWarm(null)} userId={userId} beepEnabled={beepEnabled} />}
 
+      <div className="card"><button className="btn ghost" onClick={onDaily}>Daily block · open routine</button></div>
       {plan && (
         <div className="card key">
           <div className="row">
@@ -55,7 +66,7 @@ export default function Today({ onStart }) {
           {plan.structure_note && <div className="cue">{plan.structure_note}</div>}
           {plan.coach_note && <div className="cue" style={{ borderLeftColor: 'var(--warn)' }}>{plan.coach_note}</div>}
           <button className="btn" style={{ marginTop: 14 }}
-            onClick={() => setWarm(plan.warmup_type || 'short')}>Start warm-up</button>
+            onClick={() => onRun ? onRun(plan.warmup_type || 'short') : setWarm(plan.warmup_type || 'short')}>Start warm-up</button>
         </div>
       )}
 
@@ -63,7 +74,7 @@ export default function Today({ onStart }) {
 
       {days.map(d => <DayCard key={d.id} day={d} onStart={onStart} />)}
 
-      {!plan && days.length === 0 && (
+      {!error && !plan && days.length === 0 && (
         <div className="card">
           <strong>Full rest day</strong>
           <p className="muted" style={{ marginTop: 8 }}>
@@ -73,13 +84,7 @@ export default function Today({ onStart }) {
         </div>
       )}
 
-      <div className="card">
-        <strong>Daily 15 min</strong>
-        <p className="muted" style={{ marginTop: 8 }}>
-          Isometric dorsiflexion 5 × 45s · Spanish squat 5 × 45s · hip mobility block.
-          Collagen + vitamin C 40 min before.
-        </p>
-      </div>
+
     </div>
   );
 }

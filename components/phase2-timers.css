@@ -1,0 +1,10 @@
+.phase2-timer-stack{display:flex;flex-direction:column;gap:16px;width:100%;max-width:520px;margin:0 auto;padding:16px 16px calc(96px + env(safe-area-inset-bottom, 0px))}
+.phase2-ring{width:228px;height:228px;margin:18px auto}
+.phase2-ring-text{display:flex;flex-direction:column;align-items:center;gap:12px}
+.phase2-close{width:44px;height:44px;border:1px solid var(--inset-border);border-radius:12px;background:var(--inset);color:var(--ink);font-size:24px;cursor:pointer;flex:none}
+.phase2-step-list{padding-left:20px;margin:0;display:flex;flex-direction:column;gap:14px;font-size:13px}
+.phase2-step-list li span:last-child{display:block;margin-top:4px}
+.phase2-done-mark{font-size:72px;color:var(--good);text-align:center;margin:32px 0}
+.phase2-daily-row{text-align:left;color:var(--ink);width:100%;cursor:pointer}
+.phase2-daily-row:disabled{cursor:default}
+.phase2-error{color:var(--warn)}

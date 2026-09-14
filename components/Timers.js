@@ -1,122 +1,26 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
-
-function beep() {
-  try {
-    const C = window.AudioContext || window.webkitAudioContext;
-    const ctx = new C();
-    const o = ctx.createOscillator(), g = ctx.createGain();
-    o.connect(g); g.connect(ctx.destination);
-    o.frequency.value = 880; g.gain.value = 0.18;
-    o.start(); setTimeout(() => { o.stop(); ctx.close(); }, 220);
-  } catch (e) {}
+import { useEffect, useRef } from 'react';
+import useTimer from '../lib/useTimer';
+import { today } from '../lib/supabase';
+import { FULL, SHORT } from './warmup-plan';
+import './phase2-timers.css';
+const mmss = s => `${Math.floor(Math.max(0,s)/60)}:${String(Math.max(0,s)%60).padStart(2,'0')}`;
+export function TimerRing({left,total,good=false,label='REMAINING'}) {
+ const c=2*Math.PI*104;
+ return <div className="ring phase2-ring" role="timer" aria-label={`${left} seconds ${label.toLowerCase()}`}><svg viewBox="0 0 228 228" aria-hidden="true"><circle className="ring__track" cx="114" cy="114" r="104"/><circle className={`ring__fill ${good?'good':''}`} cx="114" cy="114" r="104" strokeDasharray={c} strokeDashoffset={c*(1-Math.min(1,left/(total||1)))}/></svg><div className="phase2-ring-text"><span className="ring__val">{mmss(left)}</span><span className="ring__unit">{label}</span></div></div>;
 }
-const mmss = (s) => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.max(0, s) % 60).padStart(2, '0')}`;
-
-// Rest timer — counts down, survives backgrounding via wall clock
-export function RestTimer({ seconds, onDone }) {
-  const [left, setLeft] = useState(seconds);
-  const end = useRef(Date.now() + seconds * 1000);
-  useEffect(() => {
-    end.current = Date.now() + seconds * 1000;
-    setLeft(seconds);
-    const t = setInterval(() => {
-      const l = Math.round((end.current - Date.now()) / 1000);
-      setLeft(l);
-      if (l <= 0) { clearInterval(t); beep(); onDone && onDone(); }
-    }, 250);
-    return () => clearInterval(t);
-  }, [seconds]);
-  return (
-    <div className="card">
-      <div className="timer" style={{ color: left <= 10 ? 'var(--accent)' : '#f0efec' }}>{mmss(left)}</div>
-      <div className="row" style={{ marginTop: 12 }}>
-        <button className="btn ghost" onClick={() => { end.current += 30000; setLeft(l => l + 30); }}>+30s</button>
-        <button className="btn ghost" onClick={() => { end.current = Date.now(); setLeft(0); }}>Skip</button>
-      </div>
-    </div>
-  );
+export function RestTimer({seconds,onDone,beepEnabled=false,userId,sessionId}) {
+ const timer=useTimer({durations:[seconds],autoStart:true,beepEnabled,storageKey:userId&&sessionId?`timer:${userId}:rest:${sessionId}`:null});
+ const called=useRef(false);
+ useEffect(()=>{called.current=false;},[seconds]);
+ useEffect(()=>{if(timer.status==='done'&&!called.current){called.current=true;onDone?.();}},[timer.status,onDone]);
+ return <div className="card"><div className="timer">{mmss(timer.left)}</div><div className="grid2"><button className="btn ghost" onClick={timer.extend}>+30s</button><button className="btn ghost" onClick={timer.skip}>Skip</button></div></div>;
 }
-
-const FULL = [
-  { n: 'Raise — brisk walk building to easy jog', s: 210 },
-  { n: 'Leg swings front/back + lateral, 10 each leg', s: 60 },
-  { n: 'Walking lunge + twist, 6 each side', s: 50 },
-  { n: 'Ankle circles + dorsiflexion rocks, 10 each', s: 45 },
-  { n: '10 slow squats', s: 40 },
-  { n: "World's greatest stretch, 3 each side", s: 55 },
-  { n: 'Ankling — 20m', s: 30 },
-  { n: 'A-skips — 20m', s: 30 },
-  { n: 'High knees — 20m', s: 30 },
-  { n: 'Butt kicks — 20m', s: 30 },
-  { n: 'Stride 1 of 3 — 70m at 80%, full walk back', s: 60 },
-  { n: 'Stride 2 of 3', s: 60 },
-  { n: 'Stride 3 of 3', s: 60 },
-  { n: 'Metronome to 172. Three breaths. Go.', s: 20 },
-];
-const SHORT = [
-  { n: 'Raise — brisk walk building to easy jog', s: 210 },
-  { n: 'Leg swings + ankle circles', s: 60 },
-  { n: '10 slow squats', s: 40 },
-  { n: 'Ankling — 20m', s: 30 },
-  { n: 'A-skips — 20m', s: 30 },
-  { n: 'Metronome to 172. Go.', s: 20 },
-];
-
-export function WarmupTimer({ type = 'short', onClose }) {
-  const seq = type === 'full' ? FULL : SHORT;
-  const [i, setI] = useState(-1);
-  const [left, setLeft] = useState(0);
-  const end = useRef(0);
-
-  useEffect(() => {
-    if (i < 0 || i >= seq.length) return;
-    end.current = Date.now() + seq[i].s * 1000;
-    setLeft(seq[i].s);
-    const t = setInterval(() => {
-      const l = Math.round((end.current - Date.now()) / 1000);
-      setLeft(l);
-      if (l <= 0) { clearInterval(t); beep(); setI(x => x + 1); }
-    }, 250);
-    return () => clearInterval(t);
-  }, [i]);
-
-  const total = seq.reduce((a, b) => a + b.s, 0);
-
-  if (i < 0) return (
-    <div className="card key">
-      <div className="row"><strong>{type === 'full' ? 'Full warm-up' : 'Short warm-up'}</strong>
-        <span className="muted">{Math.round(total / 60)} min</span></div>
-      <p className="muted" style={{ margin: '8px 0 14px' }}>
-        {type === 'full'
-          ? 'Quality sessions and long runs. Auto-advances so you never touch the phone.'
-          : 'Easy runs. No strides — those are a quality-day tool.'}
-      </p>
-      <div className="cue">One 45s Spanish squat hold before you start. Every run.</div>
-      <button className="btn" style={{ marginTop: 12 }} onClick={() => setI(0)}>Start warm-up</button>
-    </div>
-  );
-
-  if (i >= seq.length) return (
-    <div className="card key">
-      <strong>Warm-up done</strong>
-      <div className="cue" style={{ marginTop: 10 }}>
-        Lightly sweaty, breathing slightly up, legs springy. If you never got warm it was too easy;
-        if you are puffing it was too hard.
-      </div>
-      <button className="btn ghost" style={{ marginTop: 12 }} onClick={onClose}>Close</button>
-    </div>
-  );
-
-  return (
-    <div className="card key">
-      <div className="muted">Step {i + 1} of {seq.length}</div>
-      <div style={{ fontSize: 19, fontWeight: 650, margin: '8px 0 14px', lineHeight: 1.3 }}>{seq[i].n}</div>
-      <div className="timer" style={{ color: left <= 5 ? 'var(--accent)' : '#f0efec' }}>{mmss(left)}</div>
-      <div className="row" style={{ marginTop: 14 }}>
-        <button className="btn ghost" onClick={() => setI(x => x + 1)}>Skip step</button>
-        <button className="btn ghost" onClick={onClose}>Exit</button>
-      </div>
-    </div>
-  );
+export function WarmupTimer({type='short',onClose,onDone=onClose,beepEnabled=false,userId}) {
+ const seq=type==='full'?FULL:SHORT;
+ const timer=useTimer({durations:seq.map(s=>s.s),beepEnabled,storageKey:userId?`timer:${userId}:warmup:${today()}:${type}`:null});
+ const total=seq.reduce((sum,s)=>sum+s.s,0);
+ return <div className="phase2-timer-stack"><div className="row"><h1>{timer.status==='done'?'Warm-up done':'Warm-up'}</h1><button className="phase2-close" onClick={onClose} aria-label="Close warm-up">×</button></div>
+ {timer.status==='idle'?<><p className="u-label">{type==='full'?'Full':'Short'} · {mmss(total)} · {seq.length} steps</p><div className="card"><strong>{type==='full'?'Quality sessions & long runs':'Easy run warm-up'}</strong><p className="muted">Steps advance automatically. Garmin records the run.</p><ol className="phase2-step-list">{seq.map(s=><li key={s.n}><span>{s.n}</span><span className="u-sub">{mmss(s.s)}</span></li>)}</ol></div><div className="callout red">One 45s Spanish squat hold before you start. Every run.</div><button className="btn" onClick={timer.start}>Start warm-up</button></>:timer.status==='done'?<><div className="phase2-done-mark">✓</div><h2>Ready to run</h2><p className="muted">Lightly sweaty, breathing slightly up, legs springy. If you never got warm it was too easy; if you are puffing it was too hard.</p><button className="btn" onClick={()=>{timer.reset();onDone?.();}}>Done · back to Today</button><button className="btn ghost" onClick={timer.reset}>Reset warm-up</button></>:<><div className="pips pips--steps" aria-label={`Step ${timer.index+1} of ${seq.length}`}>{seq.map((s,i)=><i key={s.n} className={i<timer.index?'done':i===timer.index?'current':''}/>)}</div><p className="u-label">Step {timer.index+1} of {seq.length} · {timer.status==='paused'?'Paused':'In progress'}</p><h1>{seq[timer.index]?.n}</h1><TimerRing left={timer.left} total={seq[timer.index]?.s} good/>{seq[timer.index+1]&&<div className="card"><span className="u-label">Up next</span><strong>{seq[timer.index+1].n}</strong></div>}<button className="btn" onClick={timer.status==='paused'?timer.resume:timer.pause}>{timer.status==='paused'?'Resume':'Pause'}</button><div className="grid2"><button className="btn ghost" onClick={timer.skip}>Skip step</button><button className="btn ghost" onClick={timer.reset}>Reset</button></div></>}
+ <p className="muted">{beepEnabled?'Sound on. Keep this app open for audible cues; your phone may silence audio while locked.':'Sound off.'}</p></div>;
 }

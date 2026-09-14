@@ -2,8 +2,9 @@
 import { useEffect, useState } from 'react';
 import { supa, TIER, today, LOAD_UNIT, totalLoad } from '../lib/supabase';
 import { RestTimer } from './Timers';
+import { unlockTimerAudio } from '../lib/useTimer';
 
-export default function Session({ day, onExit }) {
+export default function Session({ day, onExit, beepEnabled = false, userId }) {
   const [items, setItems] = useState([]);
   const [idx, setIdx] = useState(0);
   const [setNo, setSetNo] = useState(1);
@@ -120,6 +121,7 @@ export default function Session({ day, onExit }) {
   function clearRest() { localStorage.removeItem('rest_' + sessionId); setResting(0); }
 
   async function logSet() {
+    if (beepEnabled) unlockTimerAudio();
     const s = supa();
     const row = {
       session_id: sessionId, exercise_id: cur.exercise_id, set_number: setNo,
@@ -231,7 +233,7 @@ export default function Session({ day, onExit }) {
       {resting > 0 && (
         <>
           <p className="sub">Resting — next: {ex.name}, set {setNo}</p>
-          <RestTimer seconds={resting} onDone={clearRest} />
+          <RestTimer seconds={resting} onDone={clearRest} beepEnabled={beepEnabled} userId={userId} />
           <button className="btn" onClick={clearRest}>Ready now</button>
           <div style={{ height: 16 }} />
         </>

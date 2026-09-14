@@ -1,0 +1,16 @@
+.dashboard-pain{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:14px;text-align:left;background:var(--card);color:var(--warn);border:1px solid var(--warn);border-left:3px solid var(--warn);border-radius:11px;cursor:pointer}
+.dashboard-pain small{display:block;margin-top:5px;color:var(--dim)}
+.dashboard-pain.is-scored{border-color:var(--inset-border);color:var(--ink)}
+.dashboard-title{text-transform:capitalize;font-size:20px}
+.phase2-overlay{position:fixed;inset:0;background:var(--bg);z-index:30;overflow-y:auto}
+.phase2-overlay .nav{z-index:40}
+.phase2-subnav{padding-bottom:0}
+.phase2-tools{padding-top:0;padding-bottom:12px}
+.pain-field{border:0;margin:0;padding:0;min-width:0}
+.pain-field legend{font-weight:600;margin-bottom:12px}
+.pain-field .chip{margin-top:10px}
+.spark--multi .l1 line,.spark--multi .l1 circle{stroke:var(--warn);fill:var(--warn)}
+.spark--multi .l2 line,.spark--multi .l2 circle{stroke:var(--info);fill:var(--info);stroke-dasharray:5 4}
+.phase2-setting{display:flex;align-items:center;justify-content:space-between;gap:20px}
+.phase2-setting input{width:24px;height:24px}
+button:focus-visible{outline:2px solid var(--info);outline-offset:3px}

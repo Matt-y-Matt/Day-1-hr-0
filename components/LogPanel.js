@@ -1,6 +1,19 @@
 'use client';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { supa, today } from '../lib/supabase';
+
+function useWrite() {
+  const [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const lock = useRef(false);
+  async function write(action) {
+    if (lock.current) return;
+    lock.current = true; setBusy(true); setError('');
+    try { await action(); } catch (e) { setError(`Not saved: ${e.message}`); }
+    finally { lock.current = false; setBusy(false); }
+  }
+  return { busy, error, write };
+}
+async function checked(query) { const result = await query; if (result.error) throw result.error; return result.data; }
 
 const SITES = [
   { k: 'left_ankle_extensor', n: 'L ankle extensor' },
@@ -33,11 +46,13 @@ function Pain() {
   const [score, setScore] = useState(0);
   const [note, setNote] = useState('');
   const [msg, setMsg] = useState('');
-  async function save() {
-    await supa().from('pain_logs').insert({ site, movement: move, score, note: note || null });
+  const { busy, error, write } = useWrite();
+  async function save() { await write(async () => {
+    setMsg('');
+    await checked(supa().from('pain_logs').insert({ date: today(), site, movement: move, score, note: note || null }));
     setMsg(score === 0 ? 'Logged — clean reading.' : 'Logged.');
     setNote(''); setTimeout(() => setMsg(''), 2500);
-  }
+  }); }
   return (
     <div className="card">
       <div className="flag" style={{ marginBottom: 14 }}>
@@ -55,7 +70,8 @@ function Pain() {
           onChange={e => setScore(Number(e.target.value))} /></div>
       <div className="field"><label>Note</label>
         <input value={note} onChange={e => setNote(e.target.value)} placeholder="optional" /></div>
-      <button className="btn" onClick={save}>Save reading</button>
+      <button className="btn" disabled={busy} onClick={save}>Save reading</button>
+      {error && <div className="flag" role="alert">{error}</div>}
       {msg && <div className="flag ok" style={{ marginTop: 12 }}>{msg}</div>}
     </div>
   );
@@ -70,16 +86,18 @@ function Run() {
     min_under_135: '', cadence_avg: '', temp_c: '', shoes: '', exercise_load: '', training_effect: '',
     recovery_hr: '', feel_1_5: 3, notes: '' });
   const [msg, setMsg] = useState('');
+  const { busy, error, write } = useWrite();
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
-  async function save() {
+  async function save() { await write(async () => {
+    setMsg('');
     const p = { ...f };
     ['duration_min','distance_km','hr_avg','hr_max','min_under_135','cadence_avg','temp_c',
      'exercise_load','training_effect','recovery_hr']
       .forEach(k => p[k] = p[k] === '' ? null : Number(p[k]));
     p.feel_1_5 = Number(p.feel_1_5);
-    await supa().from('runs').insert(p);
+    await checked(supa().from('runs').insert({ ...p, date: today() }));
     setMsg('Run logged.'); setTimeout(() => setMsg(''), 2500);
-  }
+  }); }
   return (
     <div className="card">
       <div className="field"><label>Type</label>
@@ -106,7 +124,8 @@ function Run() {
       <div className="field"><label>Notes</label>
         <textarea rows={3} value={f.notes} onChange={set('notes')}
           placeholder="Tendon during / after. Cadence under fatigue. What broke down." /></div>
-      <button className="btn" onClick={save}>Save run</button>
+      <button className="btn" disabled={busy} onClick={save}>Save run</button>
+      {error && <div className="flag" role="alert">{error}</div>}
       {msg && <div className="flag ok" style={{ marginTop: 12 }}>{msg}</div>}
     </div>
   );
@@ -116,24 +135,29 @@ function Daily() {
   const [f, setF] = useState({ weight_am_kg: '', weight_pm_kg: '', calories: '', protein_g: '',
     resting_hr: '', sleep_hours: '', note: '' });
   const [msg, setMsg] = useState('');
+  const { busy, error, write } = useWrite();
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
-  async function save() {
+  async function save() { await write(async () => {
+    setMsg('');
     const p = { date: today() };
     Object.entries(f).forEach(([k, v]) => { if (v !== '') p[k] = k === 'note' ? v : Number(v); });
-    await supa().from('daily_log').upsert(p, { onConflict: 'user_id,date' });
+    await checked(supa().from('daily_log').upsert(p, { onConflict: 'user_id,date' }));
     setMsg('Saved.'); setTimeout(() => setMsg(''), 2500);
-  }
+  }); }
   async function photo(e, slot) {
     const file = e.target.files?.[0]; if (!file) return;
-    const s = supa();
-    const { data: { user } } = await s.auth.getUser();
-    const path = `${user.id}/${today()}-${slot}-${Date.now()}.jpg`;
-    const { error } = await s.storage.from('photos').upload(path, file);
-    if (!error) { await s.from('photos').insert({ slot, storage_path: path }); setMsg(`${slot.toUpperCase()} photo saved.`); }
-    else setMsg('Upload failed: ' + error.message);
-    setTimeout(() => setMsg(''), 3000);
-  }
-  return (
+    await write(async () => {
+      setMsg('');
+      const s = supa();
+      const { data, error } = await s.auth.getUser();
+      if (error) throw error;
+      if (!data.user) throw new Error('Sign in before uploading a photo.');
+      const path = `${data.user.id}/${today()}-${slot}-${Date.now()}.jpg`;
+      await checked(s.storage.from('photos').upload(path, file));
+      await checked(s.from('photos').insert({ date: today(), slot, storage_path: path }));
+      setMsg(`${slot.toUpperCase()} photo saved.`);
+    });
+  }  return (
     <div className="card">
       <div className="grid2">
         <F label="Weight AM (kg)" value={f.weight_am_kg} onChange={set('weight_am_kg')} />
@@ -148,15 +172,16 @@ function Daily() {
       </div>
       <div className="grid2" style={{ marginBottom: 12 }}>
         <label className="btn ghost" style={{ textAlign: 'center', padding: 14, cursor: 'pointer' }}>
-          📷 AM photo<input type="file" accept="image/*" capture="environment"
+          📷 AM photo<input type="file" disabled={busy} accept="image/*" capture="environment"
             style={{ display: 'none' }} onChange={e => photo(e, 'am')} /></label>
         <label className="btn ghost" style={{ textAlign: 'center', padding: 14, cursor: 'pointer' }}>
-          📷 PM photo<input type="file" accept="image/*" capture="environment"
+          📷 PM photo<input type="file" disabled={busy} accept="image/*" capture="environment"
             style={{ display: 'none' }} onChange={e => photo(e, 'pm')} /></label>
       </div>
       <div className="field"><label>Note</label>
         <input value={f.note} onChange={set('note')} placeholder="optional" /></div>
-      <button className="btn" onClick={save}>Save day</button>
+      <button className="btn" disabled={busy} onClick={save}>Save day</button>
+      {error && <div className="flag" role="alert">{error}</div>}
       {msg && <div className="flag ok" style={{ marginTop: 12 }}>{msg}</div>}
     </div>
   );
