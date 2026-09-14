@@ -50,7 +50,6 @@ export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEna
     setLoading(false);
   })().catch(e => { setError(e.message); setLoading(false); }); }, []);
 
-  if (loading) return <div className="wrap today-screen"><h1>Today</h1><p className="muted">Loading today’s programme…</p></div>;
 
   const daysToRace = Math.ceil((new Date(settings.race_date+'T00:00:00') - new Date(t+'T00:00:00')) / 86400000);
 
@@ -62,7 +61,7 @@ export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEna
       {error && <div className="flag" role="alert">Could not load Today: {error}</div>}
       {subtabs}
       <div className="seg today-toggle" aria-label="Training type">{['run','lift'].map(m => <button key={m} className={mode === m ? 'on' : ''} onClick={() => setMode(m)}>{m === 'run' ? 'Run' : 'Lift'}</button>)}</div>
-      <button className="cockpit-row pain-row" onClick={onPain}><span><strong>{PAIN_MOVEMENTS.every(m => latestPain(pain,t)[m]?.score != null) ? 'Pain scored cold' : 'Pain not scored cold'}</strong><small>Dorsiflexion + eversion · 4 taps</small></span><span className="pain-action">Log</span></button>
+      <button className="cockpit-row pain-row" onClick={onPain}><span><strong>{loading ? 'Loading pain scores…' : PAIN_MOVEMENTS.every(m => latestPain(pain,t)[m]?.score != null) ? 'Pain scored cold' : 'Pain not scored cold'}</strong><small>Dorsiflexion + eversion · 4 taps</small></span><span className="pain-action">Log</span></button>
       {warm && <WarmupTimer type={warm} onClose={() => setWarm(null)} userId={userId} beepEnabled={beepEnabled} />}
 
       <button className="cockpit-row daily-row" onClick={onDaily}><span className="tier">S</span><span><strong>Daily · tendon + hip</strong><small>{daily ? `${daily.completeItems} of ${daily.totalItems} complete` : 'Open your daily routine'}</small></span><span className="daily-action">Continue</span><span className="daily-track"><i style={{width:`${daily?.total?daily.count/daily.total*100:0}%`}}/></span></button>
@@ -70,6 +69,7 @@ export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEna
       <FoodCard userId={userId} dayType={plan?.some(p => p.run_type === 'long') ? 'long' : plan?.length && days.length ? 'run_lift' : plan?.length || days.length ? 'easy' : 'rest'} onOpen={onFood}/>
       <Commute userId={userId} onOpen={onCommute}/>
       <section className="today-session" aria-label="Today’s session">
+      {loading && <p className="muted">Loading today’s programme…</p>}
       {mode === 'run' && (plan || []).map(plan => (
         <div className="card key" key={plan.id}>
           <div className="row">

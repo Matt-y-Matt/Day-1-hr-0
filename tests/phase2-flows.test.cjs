@@ -437,3 +437,11 @@ test('photo compare changes both choices to matching views and retains legacy ph
  assert.ok(mounted.root.findAllByType('select').slice(1).every(x=>x.findAllByType('option').length===2));
  await act(async()=>mounted.root.findByProps({'aria-label':'Photo view'}).props.onChange({target:{value:'legacy'}}));await flush();assert.equal(mounted.root.findAllByType('select')[1].props.value,'old');
 });
+
+
+test('Today renders body and food while programme requests are still pending',async()=>{
+ const never=new Promise(()=>{});const q=new Proxy({}, {get:(_,key)=>key==='then'?never.then.bind(never):()=>q});
+ const Today=mountSource('components/Today.js',{from:()=>q});
+ await act(async()=>{mounted=create(React.createElement(Today,{userId:'test-user'}));});
+ const content=text(mounted.toJSON());assert.match(content,/Body/);assert.match(content,/Food/);assert.match(content,/Loading today/);assert.doesNotMatch(content,/Full rest day/);
+});
