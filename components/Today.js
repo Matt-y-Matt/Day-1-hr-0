@@ -5,11 +5,14 @@ import { WarmupTimer } from './Timers';
 import Commute from './Commute';
 import BodyCard from './BodyCard';
 import { FoodCard } from './Food';
+import { DEFAULT_SETTINGS } from '../lib/settings.mjs';
+import { loadWorkout } from '../lib/workout-client';
 import { loadSchedule } from '../lib/schedule-client';
 import { loadLabel } from '../lib/gym.mjs';
 import { latestPain, PAIN_MOVEMENTS, sessionProgress } from '../lib/phase2-data.mjs';
 
-export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEnabled, onFood, subtabs, onSchedule, onCommute }) {
+export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEnabled, onFood, subtabs, onSchedule, onCommute, onWorkout }) {
+  const [settings,setSettings]=useState(DEFAULT_SETTINGS);
   const [mode, setMode] = useState('run');
   const [daily, setDaily] = useState(null);
   const [days, setDays] = useState([]);
@@ -23,9 +26,11 @@ export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEna
 
   useEffect(() => { (async () => {
     const s = supa();
+    const config=await s.from('user_settings').select('*').eq('user_id',userId).maybeSingle();
+    if(config.error)throw config.error;const defaults={...DEFAULT_SETTINGS,...config.data};setSettings(defaults);
     const scheduled = (await loadSchedule(userId,t,t)).filter(x=>x.status!=='skipped');
     setDays(scheduled.filter(x=>x.kind==='lift').map(x=>({...x.day,occurrence:x})));
-    const p=scheduled.filter(x=>x.kind==='run');
+    const p=scheduled.filter(x=>x.kind==='run').map(x=>({...x,hr_ceiling:x.hr_ceiling??defaults.hr_ceiling,hr_target_low:x.hr_target_low??defaults.hr_target_low,hr_target_high:x.hr_target_high??defaults.hr_target_high}));
     setPlan(p); setMode(p.length?'run':'lift');
     const { data: dailyDays, error: dailyError } = await s.from('workout_days').select('*').eq('is_daily', true).eq('is_active', true);
     if (dailyError) setError(dailyError.message);
@@ -48,12 +53,12 @@ export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEna
 
   if (loading) return <div className="wrap"><h1>Today</h1><p className="muted">Loading today’s programme…</p></div>;
 
-  const daysToRace = Math.ceil((new Date('2026-12-05') - new Date()) / 86400000);
+  const daysToRace = Math.ceil((new Date(settings.race_date+'T00:00:00') - new Date(t+'T00:00:00')) / 86400000);
 
   return (
     <div className="wrap">
       <h1>{new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</h1>
-      <p className="sub">{daysToRace} days to SCSM</p>
+      <p className="sub">{daysToRace} days to {settings.race_name}</p>
 
       {error && <div className="flag" role="alert">Could not load Today: {error}</div>}
       {subtabs}
@@ -78,7 +83,7 @@ export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEna
           <div style={{ marginTop: 10 }}>
             {plan.hr_ceiling && <span className="pill">HR ceiling {plan.hr_ceiling}</span>}
             {plan.hr_target_low && <span className="pill">aim {plan.hr_target_low}–{plan.hr_target_high}</span>}
-            <span className="pill">cadence 172+</span>
+            <span className="pill">cadence {settings.cadence_target}+</span>
             <span className="pill">{plan.warmup_type === 'full' ? 'full warm-up' : 'short warm-up'}</span>
             {plan.duration_min > 45 && <span className="pill">LMNT</span>}
           </div>
@@ -89,7 +94,7 @@ export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEna
         </div>
       ))}
 
-      {mode === 'lift' && days.map(d => <DayCard key={d.schedule_ref||d.id} day={d} onStart={onStart} onSchedule={onSchedule} />)}
+      {mode === 'lift' && days.map(d => <DayCard key={d.schedule_ref||d.id} day={d} userId={userId} onWorkout={onWorkout} onStart={onStart} onSchedule={onSchedule} />)}
 
       {!error && !(plan?.length) && days.length === 0 && (
         <div className="card">
@@ -107,23 +112,20 @@ export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEna
   );
 }
 
-function DayCard({ day, onStart, onSchedule }) {
+function DayCard({ day, userId, onStart, onSchedule, onWorkout }) {
   const [items, setItems] = useState([]);
-  const [open, setOpen] = useState(null);
+  const [open, setOpen] = useState(null),[cardError,setCardError]=useState('');
   useEffect(() => { (async () => {
     const s = supa();
-    const { data } = await s.from('workout_exercises')
-      .select('*, exercises(name,priority_tier,load_unit)').eq('workout_day_id', day.id).order('order_index');
-    setItems(data || []);
-    const { data: candidates } = await s.from('sessions').select('id,schedule_ref')
-      .eq('workout_day_id', day.id).eq('date', today()).is('completed_at', null);
-    const o=(candidates||[]).filter(x=>!x.schedule_ref||x.schedule_ref===day.schedule_ref);
+    const {data:candidates,error}=await s.from('sessions').select('id,schedule_ref,workout_snapshot').eq('user_id',userId).eq('workout_day_id',day.id).eq('date',today()).is('completed_at',null);
+    if(error)throw error;const o=(candidates||[]).filter(x=>!x.schedule_ref||x.schedule_ref===day.schedule_ref);
+    setItems(o[0]?.workout_snapshot||(await loadWorkout(day,userId)).items);
     if (o?.length) {
       const { count } = await s.from('set_logs')
         .select('id', { count: 'exact', head: true }).eq('session_id', o[0].id);
       setOpen({ id: o[0].id, sets: count || 0 });
     }
-  })(); }, [day.id]);
+  })().catch(e=>setCardError(e.message)); }, [day.id,userId,day.schedule_ref]);
 
   const live = items.filter(i => i.is_enabled);
   const off = items.filter(i => !i.is_enabled);
@@ -182,6 +184,8 @@ function DayCard({ day, onStart, onSchedule }) {
       <button className="btn" style={{ marginTop: 12 }} onClick={() => onStart(day)}>
         {open ? `Resume ${day.name}` : `Start ${day.name}`}
       </button>
+      {cardError&&<div className="flag" role="alert">{cardError}</div>}
+      <button className="btn ghost" onClick={()=>onWorkout?.(day)}>Edit workout / swap exercise</button>
       <ScheduleActions item={day.occurrence} onSchedule={onSchedule}/>
     </div>
   );

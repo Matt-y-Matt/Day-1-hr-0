@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { supa, LOAD_UNIT } from '../lib/supabase';
+import { loadWorkout } from '../lib/workout-client';
 import { loadSchedule } from '../lib/schedule-client';
 import { localDate, latestPain, PAIN_MOVEMENTS, sessionProgress } from '../lib/phase2-data.mjs';
 
@@ -30,9 +31,10 @@ export default function Dashboard({ userId, revision, onPain, onRun, onDaily, on
         const lifts=scheduled.filter(x=>x.kind==='lift').map(x=>x.day);
         const selected = [...daily, ...lifts];
         const cards = await Promise.all(selected.map(async day => {
-          const { data: items, error } = await s.from('workout_exercises').select('*, exercises(name)').eq('workout_day_id', day.id).eq('is_enabled', true).order('order_index');
+          const { data: baseItems, error } = await s.from('workout_exercises').select('*, exercises(name)').eq('workout_day_id', day.id).eq('is_enabled', true).order('order_index');
           if (error) throw error;
           const session = sessions.find(x => x.workout_day_id === day.id && (!x.schedule_ref || x.schedule_ref===day.schedule_ref) && (day.is_daily || (x.started_at && !x.completed_at)));
+          const items=day.is_daily?baseItems:session?.workout_snapshot||(await loadWorkout(day,userId)).items.filter(x=>x.is_enabled);
           let logs = [];
           if (session) { const r = await s.from('set_logs').select('exercise_id,set_number').eq('session_id', session.id); if (r.error) throw r.error; logs = r.data || []; }
           return { day, session, items: items || [], ...sessionProgress(items || [], logs) };

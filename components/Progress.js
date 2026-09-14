@@ -1,134 +1,38 @@
 'use client';
-import { useEffect, useState } from 'react';
-import { supa, fmtDate } from '../lib/supabase';
-
-function Spark({ data, color = 'var(--accent)', h = 60 }) {
-  if (!data || data.length < 2) return <div className="muted">Not enough data yet.</div>;
-  const vals = data.map(d => d.v);
-  const min = Math.min(...vals), max = Math.max(...vals), rng = max - min || 1;
-  const pts = data.map((d, i) =>
-    `${(i / (data.length - 1)) * 100},${h - ((d.v - min) / rng) * (h - 8) - 4}`).join(' ');
-  return (
-    <svg viewBox={`0 0 100 ${h}`} preserveAspectRatio="none" style={{ width: '100%', height: h }}>
-      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.6" vectorEffect="non-scaling-stroke" />
-    </svg>
-  );
+import {useEffect,useState} from 'react';
+import {supa,today,fmtDate} from '../lib/supabase';
+import {allRows} from '../lib/export-client';
+import {DEFAULT_SETTINGS} from '../lib/settings.mjs';
+import {pacePoints,paceLabel,runningActivity,strengthRows} from '../lib/progress.mjs';
+import {PAIN_MOVEMENTS,shiftDate,latestPain} from '../lib/phase2-data.mjs';
+import {loadLabel} from '../lib/gym.mjs';
+import PhotoCompare from './PhotoCompare';
+function Trend({label,points,color='var(--accent)',format=v=>String(v)}){
+ if(!points.length)return <div className="card"><strong>{label}</strong><p className="muted">No recorded data.</p></div>;
+ const min=Math.min(...points.map(p=>p.v)),max=Math.max(...points.map(p=>p.v)),range=max-min||1;const coordinates=points.map((p,i)=>`${points.length===1?50:i/(points.length-1)*100},${56-(p.v-min)/range*48}`).join(' ');
+ return <section className="card"><div className="row"><strong>{label}</strong><b>{format(points.at(-1).v)}</b></div>{points.length>1?<svg className="progress-trend" viewBox="0 0 100 64" preserveAspectRatio="none" role="img" aria-label={`${label}: ${format(points[0].v)} on ${points[0].d} to ${format(points.at(-1).v)} on ${points.at(-1).d}`}><polyline fill="none" stroke={color} strokeWidth="2" vectorEffect="non-scaling-stroke" points={coordinates}/></svg>:<p className="muted">One recorded point.</p>}<small>{fmtDate(points[0].d)}: {format(points[0].v)} → {fmtDate(points.at(-1).d)}: {format(points.at(-1).v)}</small></section>;
 }
-
-export default function Progress() {
-  const [runs, setRuns] = useState([]);
-  const [pain, setPain] = useState([]);
-  const [proj, setProj] = useState(null);
-  const [wk, setWk] = useState([]);
-  const [load, setLoad] = useState([]);
-  const [acwr, setAcwr] = useState(null);
-
-  useEffect(() => { (async () => {
-    const s = supa();
-    const { data: r } = await s.from('runs').select('*').order('date');
-    setRuns(r || []);
-    const { data: p } = await s.from('pain_logs').select('*').order('date');
-    setPain(p || []);
-    const { data: w } = await s.from('v_weekly_running').select('*').order('week_start');
-    setWk(w || []);
-    const { data: mp } = await s.rpc('marathon_projection');
-    setProj(mp?.[0] || null);
-    const { data: lw } = await s.from('v_load_weekly').select('*').order('week_start');
-    setLoad(lw || []);
-    const { data: ac } = await s.rpc('acwr');
-    setAcwr(ac?.[0] || null);
-  })(); }, []);
-
-  const longs = runs.filter(r => r.run_type === 'long' && r.duration_min);
-  const paceAtHR = runs.filter(r => r.distance_km && r.duration_min && r.hr_avg && r.hr_avg <= 140)
-    .map(r => ({ d: r.date, v: r.duration_min / r.distance_km }));
-  const ankle = pain.filter(p => p.site === 'left_ankle_extensor').map(p => ({ d: p.date, v: Number(p.score) }));
-
-  const peak = longs.length ? Math.max(...longs.map(r => r.duration_min)) : 0;
-  const lastPace = paceAtHR.at(-1)?.v, firstPace = paceAtHR[0]?.v;
-
-  return (
-    <div className="wrap">
-      <h1>Progress</h1>
-      <p className="sub">{runs.length} sessions logged since 12 May</p>
-
-      {proj && (
-        <div className="card key">
-          <div className="muted">Marathon projection</div>
-          <div className="big" style={{ margin: '6px 0' }}>{proj.projected_time}</div>
-          <div className="muted">{proj.pace_per_km} min/km easy · {proj.basis}</div>
-          <div className="cue" style={{ borderLeftColor: 'var(--warn)' }}>{proj.verdict}</div>
-        </div>
-      )}
-
-      <div className="card">
-        <div className="row"><strong>Long run</strong><span className="muted">peak {peak} min</span></div>
-        <Spark data={longs.map(r => ({ d: r.date, v: r.duration_min }))} />
-        <div className="muted">Target: 180 min by 15 Nov. Cap ~3:15 for the two peak runs.</div>
-      </div>
-
-      <div className="card">
-        <div className="row"><strong>Pace at HR ≤140</strong>
-          <span className="muted">{lastPace ? lastPace.toFixed(1) + ' min/km' : '—'}</span></div>
-        <Spark data={paceAtHR} color="#5aa9e6" />
-        <div className="muted">
-          {firstPace && lastPace
-            ? `${firstPace.toFixed(1)} → ${lastPace.toFixed(1)} min/km. Down is better — this is progress marker #1.`
-            : 'Down is better — the single best marker you have.'}
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="row"><strong>L ankle extensor</strong>
-          <span className="muted">{ankle.at(-1) ? ankle.at(-1).v + '/10' : '—'}</span></div>
-        <Spark data={ankle} color="#e0a53a" />
-        <div className="muted">Return criterion: 0 on both movements, two consecutive cold mornings.</div>
-      </div>
-
-      {acwr && (
-        <div className="card">
-          <div className="row"><strong>Acute : chronic load</strong>
-            <span className="big" style={{ fontSize: 22 }}>{acwr.ratio ?? '—'}</span></div>
-          <div className="muted" style={{ marginTop: 4 }}>
-            Last 7 days {acwr.acute} vs 4-week average {acwr.chronic_avg}
-          </div>
-          <div className="cue" style={{
-            borderLeftColor: acwr.ratio > 1.5 ? 'var(--accent)' : acwr.ratio > 1.3 ? 'var(--warn)' : '#22401b' }}>
-            {acwr.verdict}
-          </div>
-        </div>
-      )}
-
-      <h2>Weekly load</h2>
-      <div className="card">
-        <table><thead><tr><th>Week</th><th>Run</th><th>Cycle</th><th>Lift</th><th>Total</th></tr></thead>
-          <tbody>{load.slice(-8).reverse().map(w => (
-            <tr key={w.week_start}><td>{fmtDate(w.week_start).slice(0, 6)}</td>
-              <td>{w.run_load || '—'}</td><td>{w.cycle_load || '—'}</td>
-              <td>{w.lift_load || '—'}</td><td><strong>{w.total_load || '—'}</strong></td></tr>
-          ))}</tbody></table>
-      </div>
-
-      <h2>Weekly volume</h2>
-      <div className="card">
-        <table><thead><tr><th>Week</th><th>Runs</th><th>Min</th><th>Long</th><th>Cad</th></tr></thead>
-          <tbody>{wk.slice(-10).reverse().map(w => (
-            <tr key={w.week_start}><td>{fmtDate(w.week_start).slice(0, 6)}</td><td>{w.runs}</td>
-              <td>{Math.round(w.total_min || 0)}</td><td>{w.long_run_min || '—'}</td><td>{w.avg_cadence || '—'}</td></tr>
-          ))}</tbody></table>
-      </div>
-
-      <h2>Markers</h2>
-      <div className="card">
-        <table><tbody>
-          <tr><td>Resting HR</td><td style={{ textAlign: 'right' }}>62 → <strong>47</strong></td></tr>
-          <tr><td>Continuous Z2</td><td style={{ textAlign: 'right' }}>20 → <strong>{peak} min</strong></td></tr>
-          <tr><td>VT2 (field)</td><td style={{ textAlign: 'right' }}>~150 → <strong>~158–162</strong></td></tr>
-          <tr><td>Longest run</td><td style={{ textAlign: 'right' }}>4km → <strong>12km</strong></td></tr>
-          <tr><td>LTHR</td><td style={{ textAlign: 'right' }}>provisional 160 — <strong>TT 29 Sep</strong></td></tr>
-          <tr><td>Fat oxidation</td><td style={{ textAlign: 'right' }}>untested since June</td></tr>
-        </tbody></table>
-      </div>
-    </div>
-  );
+export default function Progress({userId,revision}){
+ const [data,setData]=useState(null),[error,setError]=useState(''),[retry,setRetry]=useState(0);
+ useEffect(()=>{let alive=true;setData(null);setError('');(async()=>{
+  const [runs,pain,daily,photos,logs,load,settings,projection,ratio]=await Promise.all([
+   ...[['runs','*'],['pain_logs','*'],['daily_log','*'],['photos','*']].map(([table,select])=>allRows(()=>supa().from(table).select(select).eq('user_id',userId).lte('date',today()).order('date').order('id'))),
+   allRows(()=>supa().from('set_logs').select('*, exercises(name,category,load_unit,priority_tier), sessions(date)').eq('user_id',userId).order('id')),
+   supa().from('v_load_weekly').select('*').eq('user_id',userId).order('week_start'),supa().from('user_settings').select('*').eq('user_id',userId).maybeSingle(),supa().rpc('marathon_projection'),supa().rpc('acwr')]);
+  for(const r of [load,settings,projection,ratio])if(r.error)throw r.error;if(alive)setData({runs,pain,daily,photos,logs,load:load.data||[],settings:{...DEFAULT_SETTINGS,...settings.data},projection:projection.data?.[0],ratio:ratio.data?.[0]});
+ })().catch(e=>{if(alive)setError(e.message);});return()=>{alive=false;};},[userId,revision,retry]);
+ if(error)return <div className="wrap"><h1>Progress</h1><div className="flag" role="alert">Could not load progress: {error}</div><button className="btn ghost" onClick={()=>setRetry(x=>x+1)}>Retry</button></div>;
+ if(!data)return <div className="wrap"><h1>Progress</h1><p>Loading recorded progress…</p></div>;
+ const runs=data.runs.filter(runningActivity),longs=runs.filter(r=>r.run_type==='long'&&Number(r.duration_min)>0),pace=pacePoints(runs,data.settings.hr_ceiling),strength=strengthRows(data.logs);
+ const weeks=new Map();for(const r of runs){const start=shiftDate(r.date,-((new Date(r.date+'T12:00:00').getDay()+6)%7));const w=weeks.get(start)||{date:start,count:0,minutes:0,km:0,long:0};w.count++;w.minutes+=Number(r.duration_min||0);w.km+=Number(r.distance_km||0);if(r.run_type==='long')w.long=Math.max(w.long,Number(r.duration_min||0));weeks.set(start,w);}
+ return <div className="wrap logging-screen"><h1>Progress</h1><p className="sub">{runs.length} recorded runs{runs.length?` · since ${fmtDate(runs[0].date)}`:''} · {data.settings.race_name} {fmtDate(data.settings.race_date)}</p>
+ <section className="card key"><h2>Marathon estimate</h2>{data.projection?<><strong className="big">{data.projection.projected_time}</strong><p>Recent long-run pace: {paceLabel(Number(data.projection.pace_per_km))} /km</p><p className="muted">Legacy heuristic: average of the latest three qualifying long runs at HR ≤140, minus 45 seconds/km, extrapolated to 42.195 km. This is an estimate, not a measured race result.</p></>:<p className="muted">Not enough qualifying long-run distance, time and HR data.</p>}</section>
+ <section className="card"><div className="row"><strong>Acute : chronic recorded load</strong><b>{data.ratio?.ratio??'—'}</b></div><p>Last 7 days {data.ratio?.acute??'—'} · 28-day weekly average {data.ratio?.chronic_avg??'—'}</p><small>Uses recorded load only. Missing load records limit this comparison.</small></section>
+ <Trend label="Long-run duration" points={longs.map(r=>({d:r.date,v:Number(r.duration_min)}))} format={v=>`${v} min`}/><Trend label={`Running pace at HR ≤${data.settings.hr_ceiling}`} points={pace} format={v=>`${paceLabel(v)} /km`} color="#5aa9e6"/>
+ {PAIN_MOVEMENTS.map((m,i)=><Trend key={m} label={`Cold pain · ${m}`} points={[...new Set(data.pain.map(p=>p.date))].sort().flatMap(d=>{const p=latestPain(data.pain,d)[m];return p?.score!=null?[{d,v:Number(p.score)}]:[];})} format={v=>`${v}/10`} color={i?'#5aa9e6':'#e0a53a'}/>)}
+ <Trend label="Threshold pace" points={runs.filter(r=>r.run_type==='threshold'&&r.distance_km>0&&r.duration_min>0).map(r=>({d:r.date,v:r.duration_min/r.distance_km}))} format={v=>`${paceLabel(v)} /km`}/>
+ <h2>Strength · recorded best set per day</h2>{strength.length?strength.map(s=><section className="card" key={s.id}><strong>{s.exercise.priority_tier} · {s.exercise.name}</strong><p>{s.last.hold_seconds!=null?`${s.last.hold_seconds}s hold`: `${loadLabel(s.last.weight_kg,s.exercise.load_unit)} · ${s.last.reps??'—'} reps`}</p><small>First recorded: {s.first.hold_seconds!=null?`${s.first.hold_seconds}s`: `${loadLabel(s.first.weight_kg,s.exercise.load_unit)} · ${s.first.reps??'—'} reps`} · {s.dates} session day(s)</small>{s.unchanged&&<p className="muted">Best load and reps unchanged across the last three recorded days.</p>}</section>):<p className="muted">No strength sets recorded yet.</p>}
+ <Trend label="AM weight" points={data.daily.filter(d=>d.weight_am_kg!=null).map(d=>({d:d.date,v:Number(d.weight_am_kg)}))} format={v=>`${v} kg`}/><Trend label="Waist" points={data.daily.filter(d=>d.waist_cm!=null).map(d=>({d:d.date,v:Number(d.waist_cm)}))} format={v=>`${v} cm`}/><Trend label="Resting HR" points={data.daily.filter(d=>d.resting_hr!=null).map(d=>({d:d.date,v:Number(d.resting_hr)}))} format={v=>`${v} bpm`}/>
+ <PhotoCompare photos={data.photos} daily={data.daily}/><h2>Weekly running</h2><div className="card table-scroll"><table><thead><tr><th>Week</th><th>Runs</th><th>Km</th><th>Min</th><th>Long</th></tr></thead><tbody>{[...weeks.values()].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,12).map(w=><tr key={w.date}><td>{fmtDate(w.date)}</td><td>{w.count}</td><td>{w.km.toFixed(1)}</td><td>{Math.round(w.minutes)}</td><td>{w.long||'—'}</td></tr>)}</tbody></table>{!weeks.size&&<p>No running history.</p>}</div><h2>Weekly load</h2><div className="card table-scroll"><table><thead><tr><th>Week</th><th>Run</th><th>Cycle</th><th>Lift</th><th>Total</th></tr></thead><tbody>{data.load.slice(-12).reverse().map(w=><tr key={w.week_start}><td>{fmtDate(w.week_start)}</td><td>{w.run_load??'—'}</td><td>{w.cycle_load??'—'}</td><td>{w.lift_load??'—'}</td><td>{w.total_load??'—'}</td></tr>)}</tbody></table></div>
+ </div>;
 }

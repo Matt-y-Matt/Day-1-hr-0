@@ -2,6 +2,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { supa, getKey, BUILD } from '../lib/supabase';
 import Today from '../components/Today';
+import Settings from '../components/Settings';
+import WorkoutEditor from '../components/WorkoutEditor';
+import '../components/phase6.css';
 import FoodLog from '../components/Food';
 import { CommuteLog } from '../components/Commute';
 import '../components/phase5.css';
@@ -67,7 +70,6 @@ function TrainingApp({ user }) {
   const [revision, setRevision] = useState(0);
   const [beepEnabled, setBeepEnabled] = useState(false);
   const [settingsLoading, setSettingsLoading] = useState(true);
-  const [settingsBusy, setSettingsBusy] = useState(false);
   const dialogRef = useRef(null);
   const previousFocus = useRef(null);
   const [error, setError] = useState('');
@@ -87,16 +89,6 @@ function TrainingApp({ user }) {
     })();
     return () => { alive = false; };
   }, [user.id]);
-  async function saveBeeps(enabled) {
-    if (settingsLoading || settingsBusy) return;
-    setSettingsBusy(true); setError('');
-    try {
-      const { data, error } = await supa().from('user_settings').upsert({ user_id: user.id, beep_enabled: enabled }, { onConflict: 'user_id' }).select('beep_enabled').single();
-      if (error) throw error;
-      setBeepEnabled(data.beep_enabled === true);
-    } catch (e) { setError(`Could not save timer setting: ${e.message}`); }
-    finally { setSettingsBusy(false); }
-  }
   useEffect(() => {
     if (!overlay) { previousFocus.current?.focus?.(); return; }
     const dialog = dialogRef.current;
@@ -152,15 +144,17 @@ function TrainingApp({ user }) {
     <main aria-hidden={!!overlay} inert={overlay ? '' : undefined}>
       {tab === 'dashboard' && <>{sub !== 'today' && subnav}
         {sub === 'overview' && <Dashboard userId={user.id} revision={revision} onPain={onPain} onDaily={onDaily} onRun={onRun} onStart={onStart} onToday={() => setSub('today')} onProgress={() => setSub('progress')}/>}
-        {sub === 'today' && <Today onCommute={trip => openOverlay('commute',trip)} onSchedule={onSchedule} subtabs={subnav} onFood={food => openOverlay('food', { food })} key={revision} onStart={onStart} onPain={onPain} onDaily={onDaily} onRun={onRun} userId={user.id} beepEnabled={beepEnabled}/>}
-        {sub === 'progress' && <><div className="wrap phase2-tools"><button className="btn ghost" onClick={() => openOverlay('export')}>Export</button></div><Progress/></>}
+        {sub === 'today' && <Today onWorkout={day => openOverlay('workout',{day})} onCommute={trip => openOverlay('commute',trip)} onSchedule={onSchedule} subtabs={subnav} onFood={food => openOverlay('food', { food })} key={revision} onStart={onStart} onPain={onPain} onDaily={onDaily} onRun={onRun} userId={user.id} beepEnabled={beepEnabled}/>}
+        {sub === 'progress' && <><div className="wrap phase2-tools"><button className="btn ghost" onClick={() => openOverlay('export')}>Export</button></div><Progress userId={user.id} revision={revision}/></>}
       </>}
       {tab === 'week' && <Week userId={user.id} revision={revision} onSchedule={onSchedule}/>}
       {tab === 'diary' && <><div className="wrap phase2-tools"><button className="btn ghost" onClick={onPain}>Log pain · dorsiflexion + eversion</button></div><Diary userId={user.id} revision={revision} onPain={onPain} onExport={() => openOverlay('export')}/></>}
-      {tab === 'settings' && <div className="wrap"><h1>Settings</h1><p className="sub">{BUILD}</p><div className="card"><span>{user.email}</span><label className="phase2-setting">Timer beeps<input type="checkbox" checked={beepEnabled} disabled={settingsLoading || settingsBusy} onChange={e => saveBeeps(e.target.checked)}/></label><p className="muted">{settingsLoading ? 'Loading saved preference…' : settingsBusy ? 'Saving preference…' : 'Change the beep preference for your account.'}</p></div><div className="card"><button className="btn ghost" onClick={onPain}>Pain log</button><button className="btn ghost" onClick={() => openOverlay('log')}>All logs · pain, run, body & photos</button><button className="btn ghost" onClick={() => openOverlay('export')}>Export training data</button></div><button className="btn ghost" onClick={async () => { if (!confirm('Sign out on this device?')) return; const { error } = await supa().auth.signOut(); if (error) setError(error.message); }}>Sign out</button>{error && <div className="flag" role="alert">{error}</div>}</div>}
+      {tab === 'settings' && <Settings user={user} onSaved={value=>{setBeepEnabled(value.beep_enabled);changed();}} onWorkout={day=>openOverlay('workout',{day})} onExport={()=>openOverlay('export')} onLogs={()=>openOverlay('log')} onPain={onPain}/>}
+
       {nav}
     </main>
     {overlay && <div ref={dialogRef} tabIndex={-1} className="phase2-overlay" role="dialog" aria-modal="true" aria-label={overlay.name} key={overlay.token}>
+      {overlay.name === 'workout' && <WorkoutEditor userId={user.id} day={overlay.day} onChanged={changed} onClose={()=>closeOverlay()}/>}
       {overlay.name === 'schedule' && <ScheduleEditor userId={user.id} item={overlay.item} initialMode={overlay.initialMode} weekStart={overlay.weekStart} onChanged={changed} onClose={() => closeOverlay()}/>}
       {overlay.name === 'commute' && <CommuteLog userId={user.id} direction={overlay.direction} leg={overlay.leg} onChanged={changed} onClose={() => closeOverlay()}/>}
       {overlay.name === 'food' && <FoodLog userId={user.id} initialFood={overlay.food} onChanged={changed} onClose={() => closeOverlay()}/>}

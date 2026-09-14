@@ -231,9 +231,9 @@ test('Week renders all seven days and two Friday pills, and performs no writes',
 });
 function capture(name, tree) {
   if (!process.env.PHASE3_CAPTURE) return;
-  const render=n=>typeof n==='string'?n:!n?null:React.createElement(n.type,{...Object.fromEntries(Object.entries(n.props).filter(([k])=>!k.startsWith('on'))),...(['input','textarea','select'].includes(n.type) && n.props.value != null ? {readOnly:true,onChange:()=>{}}: {})},...(n.children||[]).map(render));
+  const render=n=>typeof n==='string'?n:!n?null:React.createElement(n.type,{...Object.fromEntries(Object.entries(n.props).filter(([k])=>!k.startsWith('on'))),...(['input','textarea','select'].includes(n.type) && (n.props.value != null || n.props.checked != null) ? {readOnly:true,onChange:()=>{}}: {})},...(n.children||[]).map(render));
   const markup=require('react-dom/server').renderToStaticMarkup(render(tree.toJSON()));
-  const css=['app/globals.css','components/phase2-timers.css','components/phase2-dashboard.css','components/phase3.css','components/phase4.css','components/phase5.css'].map(f=>fs.readFileSync(path.join(root,f),'utf8')).join('\n');
+  const css=['app/globals.css','components/phase2-timers.css','components/phase2-dashboard.css','components/phase3.css','components/phase4.css','components/phase5.css','components/phase6.css'].map(f=>fs.readFileSync(path.join(root,f),'utf8')).join('\n');
   const dir=path.join(root,'..','artifacts','phase3-preview');fs.mkdirSync(dir,{recursive:true});
   fs.writeFileSync(path.join(dir,`${name}.html`),`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Phase 3 ${name} · synthetic test data</title><style>:root{--font-sans:Arial,sans-serif;--font-mono:monospace}${css}</style>${markup}`);
 }
@@ -327,4 +327,30 @@ test('food serving edits update one row and deletion refreshes totals only after
 
 test('export pagination fetches beyond the API first page',async()=>{
  const allRows=mountSource('lib/export-client.js',{},'allRows');const rows=Array.from({length:1001},(_,i)=>({id:i}));let pages=0;const result=await allRows(()=>({range:async(a,z)=>{pages++;return {data:rows.slice(a,z+1),error:null};}}));assert.equal(result.length,1001);assert.equal(pages,3);
+});
+
+
+test('gym resumes its saved prescription after programme changes',async()=>{
+ const seed=gymSeed([]);seed.sessions[0].workout_snapshot=[{...seed.workout_exercises[0],exercise_id:'original',exercises:{...seed.workout_exercises[0].exercises,name:'Original press'}}];seed.workout_exercises[0].exercises.name='Replacement press';const db=database(seed);await mountGym(db);assert.match(text(mounted.toJSON()),/Original press/);assert.doesNotMatch(text(mounted.toJSON()),/Replacement press/);await act(async()=>button(mounted,'Log set 1').props.onClick());assert.equal(db.tables.set_logs[0].exercise_id,'original');
+});
+
+test('today-only exercise override is used and captured when the workout starts',async()=>{
+ const seed=gymSeed([]);seed.sessions=[];seed.workout_overrides=[{user_id:'test-user',occurrence_ref:`lift:day:${date()}`,items:[{...seed.workout_exercises[0],exercise_id:'swap',exercises:{...seed.workout_exercises[0].exercises,name:'Temporary press'}}]}];const db=database(seed);await mountGym(db);assert.match(text(mounted.toJSON()),/Temporary press/);await act(async()=>button(mounted,'Log set 1').props.onClick());assert.equal(db.tables.sessions[0].workout_snapshot[0].exercise_id,'swap');assert.equal(db.tables.workout_exercises[0].exercise_id,'exercise');
+});
+
+test('settings failed save retains typed targets and only successful save updates app',async()=>{
+ let fail=true,saved=0;const db=database({user_settings:[],workout_days:[]},q=>fail&&q.op!=='select');const Settings=mountSource('components/Settings.js',db);await act(async()=>{mounted=create(React.createElement(Settings,{user:{id:'test-user',email:'test@example.test'},onSaved:()=>saved++}));});await flush();const input=mounted.root.findAllByType('input').find(x=>x.props.value===2000);await act(async()=>input.props.onChange({target:{value:'2100'}}));await act(async()=>button(mounted,'Save settings').props.onClick());assert.equal(saved,0);assert.equal(input.props.value,'2100');fail=false;await act(async()=>button(mounted,'Save settings').props.onClick());assert.equal(db.tables.user_settings[0].kcal_easy,2100);assert.equal(saved,1);capture('settings',mounted);
+});
+
+test('workout edit submits all rows atomically and stays open after rejected save',async()=>{
+ const seed=gymSeed([]);seed.workout_days[0].is_daily=false;seed.workout_days[0].plan_revision=2;seed.exercises=[];const db=database(seed);let payload,closed=0;db.rpc=async(n,args)=>{payload=args;return {error:{message:'Workout changed on another device'}};};const Editor=mountSource('components/WorkoutEditor.js',db);await act(async()=>{mounted=create(React.createElement(Editor,{userId:'test-user',day:{id:'day',name:'Push'},onChanged(){},onClose:()=>closed++}));});await flush();const setInput=mounted.root.findAllByType('input').find(x=>x.props.value===3);await act(async()=>setInput.props.onChange({target:{value:'4'}}));await act(async()=>button(mounted,'Save programme').props.onClick());assert.equal(payload.p_revision,2);assert.equal(payload.p_items[0].sets,4);assert.equal(closed,0);assert.match(text(mounted.toJSON()),/another device/);capture('workout-editor',mounted);
+});
+
+test('photo comparison signs selected private paths and keeps missing measurements blank',async()=>{
+ const paths=[];const db={storage:{from:()=>({createSignedUrl:async(path,ttl)=>{paths.push([path,ttl]);return {data:{signedUrl:'https://example.test/private-photo'},error:null};}})}};const Photos=mountSource('components/PhotoCompare.js',db);const photos=[{id:'a',date:'2026-09-01',slot:'am',storage_path:'test-user/a',created_at:'2026-09-01T08:00:00Z'},{id:'b',date:'2026-09-14',slot:'pm',storage_path:'test-user/b',created_at:'2026-09-14T18:00:00Z'}];await act(async()=>{mounted=create(React.createElement(Photos,{photos,daily:[{date:'2026-09-01',weight_am_kg:70,waist_cm:80}]}));});await flush();assert.equal(paths.length,2);assert.ok(paths.every(x=>x[1]===3600));assert.match(text(mounted.toJSON()),/Weight change unavailable/);assert.equal(mounted.root.findAllByType('img').length,2);
+});
+
+
+test('Progress renders recorded trends and separates pain movements without hardcoded markers',async()=>{
+ const uid='test-user';const db=database({runs:[{id:'a',user_id:uid,date:'2026-09-01',run_type:'long',duration_min:60,distance_km:8,hr_avg:130},{id:'b',user_id:uid,date:date(),run_type:'long',duration_min:70,distance_km:10,hr_avg:132}],pain_logs:[{id:'p',user_id:uid,date:date(),site:'left_ankle_extensor',movement:'eversion',score:0}],daily_log:[],photos:[],set_logs:[],v_load_weekly:[],user_settings:[]});db.rpc=async()=>({data:[],error:null});const Progress=mountSource('components/Progress.js',db);await act(async()=>{mounted=create(React.createElement(Progress,{userId:uid}));});await flush();const output=text(mounted.toJSON());assert.match(output,/2\s+recorded runs/);assert.match(output,/Cold pain · dorsiflexion/);assert.match(output,/Cold pain · eversion/);assert.doesNotMatch(output,/62 →|4km →|VT2/);assert.match(output,/No photos yet/);capture('progress',mounted);
 });

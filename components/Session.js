@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { supa, TIER, today, LOAD_UNIT } from '../lib/supabase';
+import { loadWorkout } from '../lib/workout-client';
 import { GymRestTimer } from './Timers';
 import { nextSet, loadLabel, recordId } from '../lib/gym.mjs';
 import { unlockTimerAudio } from '../lib/useTimer';
@@ -35,10 +36,11 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
   useEffect(() => { (async () => {
     const s = supa();
     try {
-    const { data: we, error: weError } = await s.from('workout_exercises')
-      .select('*, exercises(*)').eq('workout_day_id', day.id).order('order_index');
+    const { data: allOpen, error: openError } = await s.from('sessions').select('*').eq('workout_day_id',day.id).eq('user_id',userId).eq('date',today()).order('started_at',{ascending:false,nullsFirst:false});
+    if(openError)throw openError;
+    const open=(allOpen||[]).filter(x=>!x.schedule_ref||x.schedule_ref===day.schedule_ref);
+    const we=open[0]?.workout_snapshot || (await loadWorkout(day,userId)).items;
     // Fail closed when a required exercise is hidden or unavailable.
-    if (weError) throw weError;
     const all = (we || []).filter(x => x.is_enabled);
     const live = all.filter(x => x.exercises);
     if (all.length !== live.length) throw new Error('An exercise is unavailable. Repair the programme before logging this session.');
@@ -53,13 +55,6 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
     if (sgError) throw sgError;
     const g = {}; (sg || []).forEach(r => { g[r.exercise_id] = r; }); setSugg(g);
 
-    // resume an open session from today, otherwise start one
-    const { data: allOpen, error: openError } = await s.from('sessions').select('*')
-      .eq('workout_day_id', day.id).eq('date', today())
-      .order('started_at', { ascending: false, nullsFirst: false });
-
-    const open=(allOpen||[]).filter(x=>!x.schedule_ref||x.schedule_ref===day.schedule_ref);
-    if (openError) throw openError;
     let sid;
     if (open?.length) {
       sid = open[0].id;
@@ -150,7 +145,7 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
       const db = supa(); let sid = sessionId;
       if (!sid) {
         sid = await recordId(`gym-session:${userId}:${day.schedule_ref||day.id}:${today()}`);
-        const result = await db.from('sessions').upsert({ id: sid, user_id: userId, date: today(), workout_day_id: day.id, schedule_ref: day.schedule_ref||null, started_at: new Date().toISOString() }, { onConflict: 'id', ignoreDuplicates: true });
+        const result = await db.from('sessions').upsert({ id: sid, user_id: userId, date: today(), workout_day_id: day.id, schedule_ref: day.schedule_ref||null, workout_snapshot: items, started_at: new Date().toISOString() }, { onConflict: 'id', ignoreDuplicates: true });
         if (result.error) throw result.error;
         setSessionId(sid);
       }
