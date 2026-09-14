@@ -125,3 +125,20 @@ ACWR, export. Builds clean.
 - Tier colours: S `#e8462a`, A `#e0a53a`, B `#5aa9e6`, C `#6b7280`
 - Keep logging to the minimum fields — every extra field is a reason to skip logging
 - Run `npx next build` before committing
+
+---
+
+## Design system
+
+The visual spec lives in /design. Read `handoff-v2.md` before any UI
+work — it has the token set, the complete state machine, the component
+sheet, and a data contract naming real Supabase columns per screen.
+`Training_Tracker_-_standalone.html` is the visual reference: 25 phone
+frames, inline-styled, read exact values from it.
+
+Design tokens and the full component CSS are ALREADY BUILT in
+app/globals.css (build v2.1). Use the existing classes — do not
+invent new ones or write inline hex values.
+
+Build order: Phase 2 (60-second path) → Phase 3 (gym loop) →
+Phase 4 (rescheduling) → Phase 5 (logging depth) → Phase 6 (long tail).
