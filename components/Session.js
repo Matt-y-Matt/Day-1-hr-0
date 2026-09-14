@@ -240,7 +240,7 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
 
   return (
     <div className="wrap active-set" data-mode={mode}>
-      <div className="row" style={{ marginBottom: 12 }}>
+      <div className="row session-toolbar">
         <button className="btn ghost" style={{ width: 'auto', padding: '8px 14px' }} disabled={busy} onClick={onExit}>
           ← Pause</button>
         <span className="muted">{doneSets}/{totalSets} sets</span>
@@ -248,7 +248,7 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
           disabled={busy} onClick={() => setFinishing(true)}>Finish</button>
       </div>
 
-      <div className="muted" style={{ marginBottom: 12, fontSize: 12 }}>
+      <div className="muted session-save-note">
         Everything is saved as you go. Pause and come back any time.
       </div>
 
@@ -260,7 +260,7 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
       )}
 
 
-      <div className="card" style={{ padding: 12 }}>
+      <div className="card exercise-navigation">
         <div className="row">
           <button className="btn ghost" style={{ width: 'auto', padding: '8px 14px' }}
             disabled={busy || idx === 0} onClick={() => { setIdx(idx - 1); setSetNo(1); }}>←</button>
@@ -270,8 +270,8 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
         </div>
       </div>
 
-      <div className="card">
-        <div className="row" style={{ alignItems: 'flex-start' }}>
+      <div className="active-set-content">
+        <div className="row exercise-heading">
           <div>
             <div style={{ fontSize: 20, fontWeight: 700, lineHeight: 1.2 }}>{ex.name}</div>
             <div className="muted" style={{ marginTop: 3 }}>
@@ -282,12 +282,12 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
         </div>
 
         {/* set chips — tap any to review or fix */}
-        <div style={{ marginTop: 12 }}>
+        <div className="set-chips">
           {Array.from({ length: cur.sets }, (_, i) => i + 1).map(n => {
             const l = exLogged[n];
             return (
               <button key={n} className={`setchip ${l ? n === setNo && editing ? 'editing' : 'done' : 'pending'}`} disabled={busy} aria-label={`Set ${n}${l ? ', completed' : ', pending'}`} aria-pressed={n === setNo} onClick={() => setSetNo(n)}>
-                {l ? '✓ ' : ''}{n}{l ? ` · ${l.hold_seconds ? l.hold_seconds+'s' : l.reps+' reps'} · ${loadLabel(l.weight_kg, ex.load_unit)}` : ''}
+                {n}{l ? `: ${l.hold_seconds ? l.hold_seconds+'s' : l.reps+'×'+(l.weight_kg??'BW')}` : ''}
               </button>
             );
           })}
@@ -296,7 +296,7 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
         {editing && <div className="editstrip" style={{ marginTop: 10 }}>
           Editing a logged set. Save overwrites it; nothing jumps forward.</div>}
 
-        {isHold ? (
+        <div className="set-controls">{isHold ? (
           <>
             <label className="u-label">Hold · seconds<input aria-label="Hold seconds" inputMode="decimal" value={holdSeconds} disabled={busy} onChange={e => setHoldSeconds(e.target.value)}/></label>
             <div className="muted" style={{ textAlign: 'center' }}>hold at ~70%</div>
@@ -307,11 +307,11 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
               <>
                 <div className="step" style={{ marginTop: 18 }}>
                   <button disabled={busy} onClick={() => setWeight(w => Math.max(0, +(Number(w) - (ex.increment_kg || 2.5)).toFixed(2)))}>−</button>
-                  <input aria-label="Load" inputMode="decimal" value={weight} disabled={busy} onChange={e => setWeight(e.target.value)}/>
+                  <div className="step-readout"><div><input aria-label="Load" inputMode="decimal" value={weight} disabled={busy} onChange={e => setWeight(e.target.value)}/><span>kg</span></div><small>Load unit · {unit.short}</small></div>
                   <button disabled={busy} onClick={() => setWeight(w => +(Number(w) + (ex.increment_kg || 2.5)).toFixed(2))}>+</button>
                 </div>
                 <div className="muted" style={{ textAlign: 'center', marginTop: 6 }}>
-                  {loadLabel(weight, ex.load_unit)} · {unit.help}
+                  {ex.load_unit==='per_hand'?`${Number(weight||0)*2} kg total across both hands`:unit.help}
                 </div>
               </>
             )}
@@ -320,13 +320,13 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
             )}
             <div className="step" style={{ marginTop: 10 }}>
               <button disabled={busy} onClick={() => setReps(r => Math.max(0, Number(r) - 1))}>−</button>
-              <input aria-label="Reps" inputMode="decimal" value={reps} disabled={busy} onChange={e => setReps(e.target.value)}/>
+              <div className="step-readout"><div><input aria-label="Reps" inputMode="decimal" value={reps} disabled={busy} onChange={e => setReps(e.target.value)}/><span>reps</span></div></div>
               <button disabled={busy} onClick={() => setReps(r => Number(r) + 1)}>+</button>
             </div>
           </>
         )}
 
-        <div className="last" style={{ marginTop: 14 }}>
+        </div><div className="last" style={{ marginTop: 14 }}>
           {prev
             ? `Last time, set ${setNo}: ${prev.reps ?? prev.hold_seconds + 's'} · ${loadLabel(prev.weight_kg,ex.load_unit)}`
             : 'First time — this set is calibration. Light warm-up set, then a best guess.'}
@@ -369,7 +369,7 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
         {editing ? `✓ Update set ${setNo}` : `✓ Log set ${setNo}`}
       </button>
       {editing && (
-        <button className="btn ghost" style={{ marginTop: 10 }} disabled={busy} onClick={deleteSet}>
+        <button className="btn ghost danger" style={{ marginTop: 10 }} disabled={busy} onClick={deleteSet}>
           Delete set {setNo}
         </button>
       )}

@@ -233,9 +233,10 @@ function capture(name, tree) {
   if (!process.env.PHASE3_CAPTURE) return;
   const render=n=>typeof n==='string'?n:!n?null:React.createElement(n.type,{...Object.fromEntries(Object.entries(n.props).filter(([k])=>!k.startsWith('on'))),...(['input','textarea','select'].includes(n.type) && (n.props.value != null || n.props.checked != null) ? {readOnly:true,onChange:()=>{}}: {})},...(n.children||[]).map(render));
   const markup=require('react-dom/server').renderToStaticMarkup(render(tree.toJSON()));
-  const css=['app/globals.css','components/phase2-timers.css','components/phase2-dashboard.css','components/phase3.css','components/phase4.css','components/phase5.css','components/phase6.css'].map(f=>fs.readFileSync(path.join(root,f),'utf8')).join('\n');
+  const fontFile=path.join(root,"..","artifacts","reference","00.html"); const fonts=fs.existsSync(fontFile)?fs.readFileSync(fontFile,"utf8").match(/<style>([\s\S]*?)<\/style>/)?.[1]?.replace(/url\("([^"]+)"\)/g,'url("../reference/$1")')||"":"";
+  const css=['app/globals.css','components/phase2-timers.css','components/phase2-dashboard.css','components/phase3.css','components/phase4.css','components/phase5.css','components/phase6.css','components/standalone.css'].map(f=>fs.readFileSync(path.join(root,f),'utf8')).join('\n');
   const dir=path.join(root,'..','artifacts','phase3-preview');fs.mkdirSync(dir,{recursive:true});
-  fs.writeFileSync(path.join(dir,`${name}.html`),`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Phase 3 ${name} · synthetic test data</title><style>:root{--font-sans:Arial,sans-serif;--font-mono:monospace}${css}</style>${markup}`);
+  fs.writeFileSync(path.join(dir,`${name}.html`),`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Phase 3 ${name} · synthetic test data</title><style>:root{--font-sans:"IBM Plex Sans",sans-serif;--font-mono:"IBM Plex Mono",monospace}${fonts}${css}</style>${markup}`);
 }
 
 test('Today composes the cockpit in order, with one Food card and nothing after the session',async()=>{
@@ -353,4 +354,14 @@ test('photo comparison signs selected private paths and keeps missing measuremen
 
 test('Progress renders recorded trends and separates pain movements without hardcoded markers',async()=>{
  const uid='test-user';const db=database({runs:[{id:'a',user_id:uid,date:'2026-09-01',run_type:'long',duration_min:60,distance_km:8,hr_avg:130},{id:'b',user_id:uid,date:date(),run_type:'long',duration_min:70,distance_km:10,hr_avg:132}],pain_logs:[{id:'p',user_id:uid,date:date(),site:'left_ankle_extensor',movement:'eversion',score:0}],daily_log:[],photos:[],set_logs:[],v_load_weekly:[],user_settings:[]});db.rpc=async()=>({data:[],error:null});const Progress=mountSource('components/Progress.js',db);await act(async()=>{mounted=create(React.createElement(Progress,{userId:uid}));});await flush();const output=text(mounted.toJSON());assert.match(output,/2\s+recorded runs/);assert.match(output,/Cold pain · dorsiflexion/);assert.match(output,/Cold pain · eversion/);assert.doesNotMatch(output,/62 →|4km →|VT2/);assert.match(output,/No photos yet/);capture('progress',mounted);
+});
+
+
+test('Dashboard restores the week strip and recorded lift chart without writing logs',async()=>{
+ const uid='test-user',seed=gymSeed([1]);seed.workout_days[0]={...seed.workout_days[0],is_daily:false,name:'Push',weekday:((new Date().getDay()+6)%7)+1};
+ seed.set_logs[0]={...seed.set_logs[0],weight_kg:14,exercises:{name:'Press',load_unit:'per_hand',priority_tier:'A'},sessions:{date:date()}};
+ const db=database(seed),Dashboard=mountSource('components/Dashboard.js',db);let opened;
+ await act(async()=>{mounted=create(React.createElement(Dashboard,{userId:uid,email:'test@example.test',onWeek:d=>opened=d}));});await flush();
+ assert.match(text(mounted.toJSON()),/First recorded/);assert.match(text(mounted.toJSON()),/Resume Push/);assert.equal(db.writes.length,0);
+ const day=buttons(mounted).find(b=>b.props['aria-label']?.startsWith('View week containing'));await act(async()=>day.props.onClick());assert.match(opened,/^\d{4}-\d{2}-\d{2}$/);capture('dashboard',mounted);
 });

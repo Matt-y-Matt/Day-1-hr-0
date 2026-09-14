@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { supa, today } from '../lib/supabase';
+import Icon from './Icons';
 import { bodyComplete } from '../lib/gym.mjs';
 
 const fields = [['weight_am_kg', 'AM weight', 'kg'], ['weight_pm_kg', 'PM weight', 'kg'], ['waist_cm', 'Waist', 'cm']];
@@ -78,11 +79,11 @@ export default function BodyCard({ userId }) {
   if (!open && complete) return <button className="body-summary" onClick={() => setOpen(true)} aria-expanded="false"><span className="status-dot good"/><span><strong>Body · daily</strong><small>{saved.weight_am_kg} / {saved.weight_pm_kg} kg · waist {saved.waist_cm ?? '—'}{saved.waist_cm ? ' cm' : ''} · {photos.length} photo{photos.length === 1 ? '' : 's'}</small></span><span>▸</span></button>;
   const missing = [!saved.weight_am_kg && 'AM weight', !saved.weight_pm_kg && 'PM weight', !photos.length && '1 photo'].filter(Boolean);
   return <section className="card body-card" aria-label="Body · daily">
-    <div className="row"><strong>Body · daily</strong><span className="u-label">{missing.length ? missing.join(' + ') + ' left' : 'Complete'}</span></div>
+    <div className="row"><strong className="u-label">Body · daily</strong><span className="u-label body-status"><i className="status-dot"/>{missing.length ? missing.length===3?'Weights + photo left':missing.join(' + ') + ' left' : 'Complete'}</span></div>
     {loading ? <p className="muted">Loading measurements…</p> : <>
-      <form onSubmit={save}><div className="body-fields">{fields.map(([key, label, unit]) => <label key={key} className={`field-box ${form[key] == null || form[key] === '' ? 'is-empty' : ''}`}><span className="u-label">{label}</span><div className="body-input"><input aria-label={label} inputMode="decimal" placeholder="Tap" value={form[key] ?? ''} disabled={busy || !loaded} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}/><span className="u-unit">{unit}</span></div></label>)}</div><button className="btn ghost" disabled={busy || !loaded}>{busy ? 'Saving…' : 'Save measurements'}</button></form>
+      <form onSubmit={save}><div className="body-fields">{fields.map(([key, label, unit]) => <label key={key} className={`field-box ${form[key] == null || form[key] === '' ? 'is-empty' : ''}`}><span className="u-label">{label}</span><div className="body-input"><input aria-label={label} inputMode="decimal" placeholder="Tap" value={form[key] ?? ''} disabled={busy || !loaded} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}/><span className="u-unit">{unit}</span></div></label>)}</div><button className="btn ghost body-save" disabled={busy || !loaded}>{busy ? 'Saving…' : 'Save measurements'}</button></form>
       <div className="grid2">{['am', 'pm'].map(slot => { const p = photos.find(p => p.slot === slot); return <label key={slot} className={`body-photo field-box ${p ? '' : 'is-empty'}`}>
-        {p?.url ? <img src={p.url} alt={`${slot.toUpperCase()} progress photo`}/> : <span aria-hidden="true">▧</span>}<span><strong>{slot.toUpperCase()} photo</strong><small>{p ? 'Taken · tap to replace' : 'Tap to take'}</small></span><input aria-label={`${slot.toUpperCase()} photo`} type="file" accept="image/*" capture="environment" disabled={busy || !loaded} onChange={e => photo(e, slot)}/>
+        {p?.url ? <img src={p.url} alt={`${slot.toUpperCase()} progress photo`}/> : <Icon name="camera" size={18}/>}<span><strong>{slot.toUpperCase()} photo</strong><small>{p ? 'Taken · tap to replace' : 'Tap to take'}</small></span><input aria-label={`${slot.toUpperCase()} photo`} type="file" accept="image/*" capture="environment" disabled={busy || !loaded} onChange={e => photo(e, slot)}/>
       </label>; })}</div>
     </>}
     {error && <div className="flag" role="alert">{error}</div>}{message && <p className="muted" role="status">{message}</p>}

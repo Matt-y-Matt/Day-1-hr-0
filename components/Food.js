@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import Icon from './Icons';
 import { loadSchedule } from '../lib/schedule-client';
 import { MEALS, mealBasis, scaleMeal, nutritionTotal, numberField } from '../lib/logging.mjs';
 import { supa, today } from '../lib/supabase';
@@ -15,11 +16,11 @@ export function FoodCard({ userId, dayType, onOpen }) {
   const kcal = data?.total.kcal || 0, protein = data?.total.protein_g || 0;
   const target = data?.settings[`kcal_${dayType}`] ?? ({ rest: 1800, easy: 2000, run_lift: 2300, long: 2700 }[dayType]);
   const pTarget = data?.settings.protein_g ?? 155;
-  return <section className="card food-card" aria-label="Food · today"><div className="row"><strong>Food · today</strong><span className="u-sub">{data ? `${kcal} / ${target} kcal` : '—'}</span></div>
+  return <section className="card food-card" aria-label="Food · today"><div className="row"><strong className="u-label">Food · today</strong><span className="u-sub">{data ? `${kcal} / ${target} kcal` : '—'}</span></div>
     {data && <><div className="food-bar"><i style={{ width: `${Math.min(100, kcal / target * 100)}%` }}/></div><div className="row muted"><span>{Math.max(0,target-kcal)} kcal left</span><span>{protein} / {pTarget}g P</span></div><div className="food-bar protein"><i style={{ width: `${Math.min(100,protein / pTarget * 100)}%` }}/></div></>}
     {error && <p role="alert" className="muted">{error}</p>}
-    <button className="btn ghost food-search" onClick={() => onOpen()}>Search food… <span className="u-label">1 tap</span></button>
-    <div className="food-chips">{data?.favourites.map(f => <button className="pill" key={f.id} onClick={() => onOpen(f)}>{f.name}</button>)}<button className="pill" onClick={() => onOpen({ custom: true })}>+ Custom</button></div>
+    <button className="btn ghost food-search" onClick={() => onOpen()}><Icon name="search" size={17}/><span className="search-copy">Search food…</span> <span className="u-label">1 tap</span></button>
+    <div className="food-chips">{data?.favourites.map(f => <button className="chip" key={f.id} onClick={() => onOpen(f)}>{f.name}</button>)}<button className="chip" onClick={() => onOpen({ custom: true })}>+ Custom</button></div>
   </section>;
 }
 
@@ -51,7 +52,7 @@ export default function FoodLog({userId,initialFood,onClose,onChanged}){
   async function remove(row){if(lock.current)return;lock.current=true;setBusy(true);setError('');try{const r=await supa().from('meal_logs').delete().eq('id',row.id).eq('user_id',userId).select('id');if(r.error)throw r.error;if(!r.data?.length)throw new Error('Entry unavailable. Reopen the food log.');setEntries(old=>old.filter(x=>x.id!==row.id));setDeleteId(null);onChanged?.();}catch(e){setError(e.message);}finally{lock.current=false;setBusy(false);}}
   const total=nutritionTotal(entries),target=settings[`kcal_${dayType}`]??({rest:1800,easy:2000,run_lift:2300,long:2700}[dayType]);
   const results=foods.filter(f=>f.name.toLowerCase().includes(query.trim().toLowerCase()));
-  return <div className="wrap logging-screen"><div className="row"><h1>Food log</h1><button className="btn ghost compact" disabled={busy} onClick={onClose}>‹ Back</button></div>
+  return <div className="wrap logging-screen food-screen"><div className="row"><h1>Food log</h1><button className="btn ghost compact" disabled={busy} onClick={onClose}>‹ Back</button></div>
     <label>Date<input type="date" max={today()} disabled={busy||!!selected} value={date} onChange={e=>{if(e.target.value)setDate(e.target.value);}}/></label>
     <div className="card"><strong>{loading?'Loading totals…':loadError?'Totals unavailable':`${total.kcal} / ${target} kcal`}</strong><div className="food-bar"><i style={{width:`${Math.min(100,total.kcal/target*100)}%`}}/></div><p>{Math.max(0,target-total.kcal)} kcal left · {total.protein_g} / {settings.protein_g??155}g protein</p><div className="food-bar protein"><i style={{width:`${Math.min(100,total.protein_g/(settings.protein_g??155)*100)}%`}}/></div><small>{dayType.replace('_',' + ')} day target</small></div>
     {error&&<div className="flag" role="alert">{error}{loadError&&<button className="btn ghost" onClick={()=>setRetry(x=>x+1)}>Retry loading</button>}</div>}{message&&<p role="status">{message}</p>}{loading&&<p>Loading food log…</p>}
@@ -59,7 +60,7 @@ export default function FoodLog({userId,initialFood,onClose,onChanged}){
       {selected.custom&&!editing&&<>{[['name','Food name'],['serving_desc','Serving description'],['kcal','Calories per serving'],['protein_g','Protein per serving (g)'],['carbs_g','Carbs per serving (g), optional'],['fat_g','Fat per serving (g), optional']].map(([key,label])=><label key={key}>{label}<input inputMode={['name','serving_desc'].includes(key)?'text':'decimal'} value={custom[key]} onChange={e=>setCustom(c=>({...c,[key]:e.target.value}))}/></label>)}<label className="check-label"><input type="checkbox" checked={custom.save} onChange={e=>setCustom(c=>({...c,save:e.target.checked}))}/> Save to my foods · available in future searches</label></>}
       <label>Servings{selected.serving_desc?` · ${selected.serving_desc}`:''}<input aria-label="Servings" inputMode="decimal" value={servings} onChange={e=>setServings(e.target.value)}/></label>
       <button className="btn" onClick={save}>{busy?'Saving…':editing?'Update food':`Add to ${meal}`}</button><button className="btn ghost" onClick={()=>choose(null)}>Cancel</button></fieldset></div>:<>
-      <div className="food-chips">{foods.filter(x=>x.is_favourite).slice(0,8).map(f=><button className="pill" key={f.id} onClick={()=>choose(f)}>{f.name}</button>)}</div><label>Search food<input value={query} placeholder="Search food…" onChange={e=>setQuery(e.target.value)}/></label>
+      <div className="food-chips">{foods.filter(x=>x.is_favourite).slice(0,8).map(f=><button className="chip" key={f.id} onClick={()=>choose(f)}>{f.name}</button>)}</div><label>Search food<input value={query} placeholder="Search food…" onChange={e=>setQuery(e.target.value)}/></label>
       {query&&<button className="chip" onClick={()=>setQuery('')}>Clear search</button>}<p className="muted">{query.trim()?`${results.length} results${results.length>50?' · showing first 50; refine your search':''}`:`Search ${foods.length} foods, or add a custom food.`}</p>
       {(query.trim()?results.slice(0,50):[]).map(f=><button className="food-result" key={f.id} onClick={()=>choose(f)}><strong>{f.name}{f.is_local?' · local':''}</strong><small>{f.serving_desc} · {f.kcal} kcal · {f.protein_g}g P</small></button>)}
       <button className="btn ghost" onClick={()=>choose({custom:true})}>+ Custom food</button>

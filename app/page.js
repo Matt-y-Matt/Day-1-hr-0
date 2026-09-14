@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { supa, getKey, BUILD } from '../lib/supabase';
+import Icon from '../components/Icons';
 import Today from '../components/Today';
 import Settings from '../components/Settings';
 import WorkoutEditor from '../components/WorkoutEditor';
@@ -22,6 +23,7 @@ import PainLog from '../components/PainLog';
 import DailyBlock from '../components/DailyBlock';
 import { WarmupTimer } from '../components/Timers';
 import '../components/phase2-dashboard.css';
+import '../components/standalone.css';
 
 export default function Page() {
   const [ready, setReady] = useState(false);
@@ -65,6 +67,8 @@ export default function Page() {
 const TABS = [{ k: 'dashboard', ic: '◉', n: 'Dashboard' }, { k: 'week', ic: '▤', n: 'Week' }, { k: 'diary', ic: '☰', n: 'Diary' }, { k: 'settings', ic: '⚙', n: 'Settings' }];
 function TrainingApp({ user }) {
   const [tab, setTab] = useState('dashboard');
+  const [weekDate,setWeekDate]=useState(null);
+  const swipe=useRef(null);
   const [sub, setSub] = useState('overview');
   const [overlay, setOverlay] = useState(null);
   const [revision, setRevision] = useState(0);
@@ -133,27 +137,27 @@ function TrainingApp({ user }) {
     else { overlayRef.current = null; setOverlay(null); setTab(current.origin.tab); setSub(current.origin.sub); afterClose.current = null; action?.(); }
   }
   function navigate(next) { const action = () => { setTab(next); if (next === 'dashboard') setSub('overview'); }; if (overlayRef.current) closeOverlay(action); else action(); }
-  const nav = <nav className="nav" aria-label="Main navigation">{TABS.map(t => <button key={t.k} className={tab === t.k ? 'on' : ''} onClick={() => navigate(t.k)} aria-current={tab === t.k ? 'page' : undefined}><span className="ic">{t.ic}</span>{t.n}</button>)}</nav>;
+  const nav = <nav className="nav" aria-label="Main navigation">{TABS.map(t => <button key={t.k} className={tab === t.k ? 'on' : ''} onClick={() => navigate(t.k)} aria-current={tab === t.k ? 'page' : undefined}><Icon name={t.k}/>{t.n}</button>)}</nav>;
   const onSchedule = (item, initialMode='move', weekStart) => openOverlay('schedule', { item, initialMode, weekStart });
   const onPain = date => openOverlay('pain', { date: typeof date === 'string' ? date : undefined });
   const onDaily = () => openOverlay('daily');
   const onRun = type => openOverlay('warmup', { type });
   const onStart = day => openOverlay('session', { day });
-  const subnav = <div className="wrap phase2-subnav"><div className="seg" aria-label="Dashboard views">{['overview', 'today', 'progress'].map(v => <button key={v} className={sub === v ? 'on' : ''} onClick={() => setSub(v)}>{v[0].toUpperCase() + v.slice(1)}</button>)}</div></div>;
+  const subnav = <div className="wrap phase2-subnav"><div className="seg" aria-label="Dashboard views">{['today', 'progress'].map(v => <button key={v} className={sub === v ? 'on' : ''} onClick={() => setSub(v)}>{v[0].toUpperCase() + v.slice(1)}</button>)}<span className="swipe-hint">Swipe ⇄</span></div></div>;
   return <>
-    <main aria-hidden={!!overlay} inert={overlay ? '' : undefined}>
-      {tab === 'dashboard' && <>{sub !== 'today' && subnav}
-        {sub === 'overview' && <Dashboard userId={user.id} revision={revision} onPain={onPain} onDaily={onDaily} onRun={onRun} onStart={onStart} onToday={() => setSub('today')} onProgress={() => setSub('progress')}/>}
+    <main className="training-shell" onTouchStart={e=>{const t=e.touches[0];swipe.current={x:t.clientX,y:t.clientY};}} onTouchEnd={e=>{if(tab!=='dashboard'||sub==='overview'||!swipe.current)return;const t=e.changedTouches[0],dx=t.clientX-swipe.current.x,dy=t.clientY-swipe.current.y;swipe.current=null;if(Math.abs(dx)>70&&Math.abs(dy)<40)setSub(dx<0?'progress':'today');}} aria-hidden={!!overlay} inert={overlay ? '' : undefined}>
+      {tab === 'dashboard' && <>
+        {sub === 'overview' && <Dashboard userId={user.id} revision={revision} onPain={onPain} onDaily={onDaily} onRun={onRun} onStart={onStart} onToday={() => setSub('today')} onProgress={() => setSub('progress')} onWeek={date => {setWeekDate(date);navigate('week');}} onSettings={() => navigate('settings')} email={user.email}/>}
         {sub === 'today' && <Today onWorkout={day => openOverlay('workout',{day})} onCommute={trip => openOverlay('commute',trip)} onSchedule={onSchedule} subtabs={subnav} onFood={food => openOverlay('food', { food })} key={revision} onStart={onStart} onPain={onPain} onDaily={onDaily} onRun={onRun} userId={user.id} beepEnabled={beepEnabled}/>}
-        {sub === 'progress' && <><div className="wrap phase2-tools"><button className="btn ghost" onClick={() => openOverlay('export')}>Export</button></div><Progress userId={user.id} revision={revision}/></>}
+        {sub === 'progress' && <Progress userId={user.id} revision={revision} subtabs={subnav} onExport={() => openOverlay('export')}/>}
       </>}
-      {tab === 'week' && <Week userId={user.id} revision={revision} onSchedule={onSchedule}/>}
-      {tab === 'diary' && <><div className="wrap phase2-tools"><button className="btn ghost" onClick={onPain}>Log pain · dorsiflexion + eversion</button></div><Diary userId={user.id} revision={revision} onPain={onPain} onExport={() => openOverlay('export')}/></>}
+      {tab === 'week' && <Week initialDate={weekDate} userId={user.id} revision={revision} onSchedule={onSchedule}/>}
+      {tab === 'diary' && <><Diary userId={user.id} revision={revision} onPain={onPain} onExport={() => openOverlay('export')}/></>}
       {tab === 'settings' && <Settings user={user} onSaved={value=>{setBeepEnabled(value.beep_enabled);changed();}} onWorkout={day=>openOverlay('workout',{day})} onExport={()=>openOverlay('export')} onLogs={()=>openOverlay('log')} onPain={onPain}/>}
 
       {nav}
     </main>
-    {overlay && <div ref={dialogRef} tabIndex={-1} className="phase2-overlay" role="dialog" aria-modal="true" aria-label={overlay.name} key={overlay.token}>
+    {overlay && <div ref={dialogRef} tabIndex={-1} className={`phase2-overlay overlay-${overlay.name}`} role="dialog" aria-modal="true" aria-label={overlay.name} key={overlay.token}>
       {overlay.name === 'workout' && <WorkoutEditor userId={user.id} day={overlay.day} onChanged={changed} onClose={()=>closeOverlay()}/>}
       {overlay.name === 'schedule' && <ScheduleEditor userId={user.id} item={overlay.item} initialMode={overlay.initialMode} weekStart={overlay.weekStart} onChanged={changed} onClose={() => closeOverlay()}/>}
       {overlay.name === 'commute' && <CommuteLog userId={user.id} direction={overlay.direction} leg={overlay.leg} onChanged={changed} onClose={() => closeOverlay()}/>}

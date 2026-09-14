@@ -51,22 +51,22 @@ export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEna
     setLoading(false);
   })().catch(e => { setError(e.message); setLoading(false); }); }, []);
 
-  if (loading) return <div className="wrap"><h1>Today</h1><p className="muted">Loading today’s programme…</p></div>;
+  if (loading) return <div className="wrap today-screen"><h1>Today</h1><p className="muted">Loading today’s programme…</p></div>;
 
   const daysToRace = Math.ceil((new Date(settings.race_date+'T00:00:00') - new Date(t+'T00:00:00')) / 86400000);
 
   return (
-    <div className="wrap">
+    <div className="wrap today-screen">
       <h1>{new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</h1>
       <p className="sub">{daysToRace} days to {settings.race_name}</p>
 
       {error && <div className="flag" role="alert">Could not load Today: {error}</div>}
       {subtabs}
       <div className="seg today-toggle" aria-label="Training type">{['run','lift'].map(m => <button key={m} className={mode === m ? 'on' : ''} onClick={() => setMode(m)}>{m === 'run' ? 'Run' : 'Lift'}</button>)}</div>
-      <button className="cockpit-row pain-row" onClick={onPain}><span><strong>{PAIN_MOVEMENTS.every(m => latestPain(pain,t)[m]?.score != null) ? 'Pain scored cold' : 'Pain not scored cold'}</strong><small>Dorsiflexion + eversion · 4 taps</small></span><span>Log →</span></button>
+      <button className="cockpit-row pain-row" onClick={onPain}><span><strong>{PAIN_MOVEMENTS.every(m => latestPain(pain,t)[m]?.score != null) ? 'Pain scored cold' : 'Pain not scored cold'}</strong><small>Dorsiflexion + eversion · 4 taps</small></span><span className="pain-action">Log</span></button>
       {warm && <WarmupTimer type={warm} onClose={() => setWarm(null)} userId={userId} beepEnabled={beepEnabled} />}
 
-      <button className="cockpit-row" onClick={onDaily}><span><strong>Daily · tendon + hip</strong><small>{daily ? `${daily.completeItems} of ${daily.totalItems} complete` : 'Open your daily routine'}</small></span><span>Continue →</span></button>
+      <button className="cockpit-row daily-row" onClick={onDaily}><span className="tier">S</span><span><strong>Daily · tendon + hip</strong><small>{daily ? `${daily.completeItems} of ${daily.totalItems} complete` : 'Open your daily routine'}</small></span><span className="daily-action">Continue</span><span className="daily-track"><i style={{width:`${daily?.total?daily.count/daily.total*100:0}%`}}/></span></button>
       <BodyCard userId={userId}/>
       <FoodCard userId={userId} dayType={plan?.some(p => p.run_type === 'long') ? 'long' : plan?.length && days.length ? 'run_lift' : plan?.length || days.length ? 'easy' : 'rest'} onOpen={onFood}/>
       <Commute userId={userId} onOpen={onCommute}/>
@@ -75,8 +75,8 @@ export default function Today({ onStart, onPain, onDaily, onRun, userId, beepEna
         <div className="card key" key={plan.id}>
           <div className="row">
             <strong style={{ fontSize: 18 }}>
-              {plan.run_type === 'long' ? '🏃 Long run' : plan.run_type === 'threshold' ? '⚡ Threshold'
-                : plan.run_type === 'test' ? '⏱ Time trial' : plan.run_type === 'race' ? '🏁 RACE' : '🏃 Run'}
+              {plan.run_type === 'long' ? 'Long run' : plan.run_type === 'threshold' ? 'Threshold'
+                : plan.run_type === 'test' ? 'Time trial' : plan.run_type === 'race' ? 'Race' : 'Run'}
               {plan.duration_min ? ` · ${plan.duration_min} min` : ''}
             </strong>
           </div>
@@ -134,35 +134,31 @@ function DayCard({ day, userId, onStart, onSchedule, onWorkout }) {
   return (
     <div className="card">
       <div className="row">
-        <strong style={{ fontSize: 18 }}>🏋 {day.name}</strong>
+        <strong style={{ fontSize: 18 }}>{day.name}</strong>
         <span className="muted">{live.length} exercises · {day.est_minutes} min</span>
       </div>
-      <div style={{ marginTop: 12 }}>
+      <div className="exercise-list">
         {live.map(i => {
           // exercises embeds as null when the row points at an exercise this
           // account cannot see under RLS. Render it, don't die on it.
           const ex = i.exercises;
           const tr = (ex && TIER[ex.priority_tier]) || TIER.B;
           if (!ex) return (
-            <div key={i.id} className="row" style={{ marginBottom: 7, justifyContent: 'flex-start' }}>
+            <div key={i.id} className="exrow">
               <span className="tier" style={{ background: 'var(--inset-border)', color: 'var(--dim)' }}>?</span>
               <span className="muted" style={{ fontSize: 14, flex: 1 }}>Exercise unavailable on this account</span>
             </div>
           );
           return (
-            <div key={i.id} className="row" style={{ marginBottom: 7, justifyContent: 'flex-start' }}>
+            <div key={i.id} className="exrow">
               <span className="tier" style={{ background: tr.color, color: tr.text }}>{tr.label}</span>
-              <span style={{ fontSize: 14, flex: 1 }}>{ex.name}
-                {ex.load_unit === 'per_hand' &&
-                  <span className="muted" style={{ fontSize: 11 }}> · per hand</span>}</span>
-              <span className="muted">
-                {loadLabel(i.target_weight_kg, ex.load_unit)} · {i.sets}×{i.hold_seconds ? i.hold_seconds + 's' : (i.rep_min === i.rep_max ? i.rep_min : `${i.rep_min}–${i.rep_max}`)}
-              </span>
+              <span className="exercise-copy"><span className="exname">{ex.name}</span><small>{loadLabel(i.target_weight_kg, ex.load_unit)}{i.rir_target ? ` · RIR ${i.rir_target}` : ''}</small></span>
+              <span className="exercise-prescription">{i.sets}×{i.hold_seconds ? i.hold_seconds + 's' : (i.rep_min === i.rep_max ? i.rep_min : `${i.rep_min}–${i.rep_max}`)}</span>
             </div>
           );
         })}
         {off.map(i => (
-          <div key={i.id} className="row disabled" style={{ marginBottom: 7, justifyContent: 'flex-start' }}>
+          <div key={i.id} className="exrow disabled">
             <span className="tier" style={{ background: 'var(--inset-border)' }}>—</span>
             <span style={{ fontSize: 14, flex: 1, textDecoration: 'line-through' }}>
               {i.exercises ? i.exercises.name : 'Exercise unavailable on this account'}</span>
@@ -185,7 +181,7 @@ function DayCard({ day, userId, onStart, onSchedule, onWorkout }) {
         {open ? `Resume ${day.name}` : `Start ${day.name}`}
       </button>
       {cardError&&<div className="flag" role="alert">{cardError}</div>}
-      <button className="btn ghost" onClick={()=>onWorkout?.(day)}>Edit workout / swap exercise</button>
+      <button className="btn ghost edit-workout-link" onClick={()=>onWorkout?.(day)}>Edit workout / swap exercise</button>
       <ScheduleActions item={day.occurrence} onSchedule={onSchedule}/>
     </div>
   );

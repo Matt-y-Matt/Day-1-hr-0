@@ -55,12 +55,12 @@ export default function PainLog({ userId, onClose, onChanged, initialDate }) {
     finally { lock.current = false; setBusy(false); }
   }
   const yesterday = latestPain(rows, shiftDate(date, -1));
-  return <div className="wrap"><div className="row"><h1>Pain log</h1><button className="chip" onClick={onClose} disabled={busy} aria-label="Close pain log">✕</button></div>
+  return <div className="wrap pain-screen"><div className="row"><h1>Pain log</h1><button className="chip" onClick={onClose} disabled={busy} aria-label="Close pain log">✕</button></div>
     <p className="sub">{date} · left ankle extensor</p>
     <div className="flag">Score cold, before loading or isometrics. A missing reading is not zero.</div>
     {error && <div className="flag" role="alert">{error}</div>}
     {loading ? <p className="muted">Loading readings…</p> : <>
-      <div className="card">{PAIN_MOVEMENTS.map(m => <div key={m}><Scale label={m === 'dorsiflexion' ? 'Dorsiflexion' : 'Eversion'} value={scores[m]} disabled={busy} onChange={value => setScores(s => ({ ...s, [m]: value }))}/><p className="muted">Yesterday: {yesterday[m]?.score == null ? 'not recorded' : `${yesterday[m].score}/10`}</p></div>)}</div>
+      <div className="pain-cards">{PAIN_MOVEMENTS.map(m => <div className="card" key={m}><Scale label={m === 'dorsiflexion' ? 'Dorsiflexion' : 'Eversion'} value={scores[m]} disabled={busy} onChange={value => setScores(s => ({ ...s, [m]: value }))}/><p className="muted">Yesterday: {yesterday[m]?.score == null ? 'not recorded' : `${yesterday[m].score}/10`}</p></div>)}</div>
       <div className="card"><button className="btn ghost" onClick={() => setShowKnee(!showKnee)} disabled={busy}>{showKnee ? 'Remove optional knee reading' : '+ Right patellar · optional'}</button>{showKnee && <Scale label="Right patellar · general" value={knee} onChange={setKnee} disabled={busy}/>}<label htmlFor="pain-note">Note · optional</label><textarea id="pain-note" rows={2} value={note} onChange={e => setNote(e.target.value)} disabled={busy}/></div>
       <button className="btn" disabled={busy || PAIN_MOVEMENTS.some(m => scores[m] == null)} onClick={save}>{busy ? 'Saving…' : showKnee && knee != null ? 'Save both scores + knee' : 'Save both scores'}</button>
       <h2>Last 14 days</h2><PainTrend rows={rows} date={date}/>
