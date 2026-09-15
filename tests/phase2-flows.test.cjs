@@ -562,3 +562,41 @@ test('load detail re-asks the database when the basis changes', async () => {
   assert.deepEqual(calls, ['time', 'distance']);
   assert.match(text(mounted.root.findByType('div')), /km/);
 });
+
+// ---------- Diary ----------
+// Diary renders under every tab switch, so a bad reference here takes the whole
+// screen down. Mounting it catches an undeclared prop that the build cannot.
+function diaryDb(runs) {
+  return database({
+    daily_log: [{ user_id: 'test-user', date: date(), weight_am_kg: 71.7, sleep_hours: 7 }],
+    pain_logs: [], sessions: [], runs, v_daily_nutrition: [],
+  });
+}
+async function mountDiary(db, props = {}) {
+  const Diary = mountSource('components/Diary.js', db);
+  await act(async () => { mounted = create(React.createElement(Diary, { userId: 'test-user', onPain() {}, onExport() {}, ...props })); });
+  await flush();
+  return mounted;
+}
+
+test('diary renders its activities without a fuel handler', async () => {
+  const db = diaryDb([{ id: 'r1', user_id: 'test-user', date: date(), run_type: 'long', duration_min: 120, distance_km: 18 }]);
+  const tree = await mountDiary(db);
+  const all = text(tree.root.findByType('div'));
+  assert.match(all, /Diary/);
+  assert.match(all, /long/);
+  assert.equal(buttons(tree).some(b => text(b).includes('Fuel')), false);
+});
+
+test('diary offers fuel on a run but not on a commute', async () => {
+  const db = diaryDb([
+    { id: 'r1', user_id: 'test-user', date: date(), run_type: 'long', duration_min: 120, distance_km: 18 },
+    { id: 'r2', user_id: 'test-user', date: date(), run_type: 'cycle', commute_direction: 'to_work', duration_min: 22 },
+  ]);
+  let opened = null;
+  const tree = await mountDiary(db, { onFuel: r => { opened = r; } });
+  const fuelButtons = buttons(tree).filter(b => text(b).includes('Fuel'));
+  assert.equal(fuelButtons.length, 1, 'exactly one fuel button — the run, not the commute');
+  await act(async () => fuelButtons[0].props.onClick());
+  assert.equal(opened.id, 'r1');
+});

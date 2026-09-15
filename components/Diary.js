@@ -4,7 +4,7 @@ import {supa,today,fmtDate} from '../lib/supabase';
 import {shiftDate,latestPain,PAIN_MOVEMENTS} from '../lib/phase2-data.mjs';
 import {numberField} from '../lib/logging.mjs';
 
-export default function Diary({userId,onPain,onExport,revision}){
+export default function Diary({userId,onPain,onExport,onFuel,revision}){
  const [date,setDate]=useState(today),[data,setData]=useState(null),[form,setForm]=useState({}),[sessions,setSessions]=useState([]),[error,setError]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false),[retry,setRetry]=useState(0);
  const lock=useRef(false),loadedDate=useRef(null);
  useEffect(()=>{let alive=true;setData(null);setError('');setMessage('');(async()=>{
