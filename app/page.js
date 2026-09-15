@@ -21,9 +21,12 @@ import Session from '../components/Session';
 import Dashboard from '../components/Dashboard';
 import PainLog from '../components/PainLog';
 import DailyBlock from '../components/DailyBlock';
+import FuelLog from '../components/Fuel';
+import AcwrDetail from '../components/AcwrDetail';
 import { WarmupTimer } from '../components/Timers';
 import '../components/phase2-dashboard.css';
 import '../components/standalone.css';
+import '../components/phase7.css';
 
 export default function Page() {
   const [ready, setReady] = useState(false);
@@ -64,12 +67,13 @@ export default function Page() {
   return <TrainingApp key={user.id} user={user}/>;
 }
 
-const TABS = [{ k: 'dashboard', ic: '◉', n: 'Dashboard' }, { k: 'week', ic: '▤', n: 'Week' }, { k: 'diary', ic: '☰', n: 'Diary' }, { k: 'settings', ic: '⚙', n: 'Settings' }];
+// Five tabs, in the order you read them: where am I, what's today, how am I
+// tracking, what's the week, what happened. Settings is monthly, so it lives on
+// the gear in the Dashboard header rather than burning a permanent tab slot.
+const TABS = [{ k: 'dashboard', n: 'Dashboard' }, { k: 'today', n: 'Today' }, { k: 'progress', n: 'Progress' }, { k: 'week', n: 'Week' }, { k: 'diary', n: 'Diary' }];
 function TrainingApp({ user }) {
   const [tab, setTab] = useState('dashboard');
   const [weekDate,setWeekDate]=useState(null);
-  const swipe=useRef(null);
-  const [sub, setSub] = useState('overview');
   const [overlay, setOverlay] = useState(null);
   const [revision, setRevision] = useState(0);
   const [beepEnabled, setBeepEnabled] = useState(false);
@@ -82,7 +86,7 @@ function TrainingApp({ user }) {
   const afterClose = useRef(null);
   const dirty = useRef(false);
   const changed = () => { if (overlayRef.current) dirty.current = true; else setRevision(x => x + 1); };
-  useEffect(()=>{window.scrollTo({top:0,behavior:'instant'});},[tab,sub]);
+  useEffect(()=>{window.scrollTo({top:0,behavior:'instant'});},[tab]);
   useEffect(()=>{if(!overlay)return;const previous=document.body.style.overflow;document.body.style.overflow='hidden';return()=>{document.body.style.overflow=previous;};},[overlay]);
 
   useEffect(() => {
@@ -118,7 +122,7 @@ function TrainingApp({ user }) {
     if (history.state?.trainingOverlay) history.replaceState(null, '');
     const pop = () => {
       const current = overlayRef.current;
-      if (current) { setTab(current.origin.tab); setSub(current.origin.sub); }
+      if (current) setTab(current.origin.tab);
       overlayRef.current = null; setOverlay(null); closing.current = false;
       if (dirty.current) { dirty.current = false; setRevision(x => x + 1); }
       const action = afterClose.current; afterClose.current = null; action?.();
@@ -128,7 +132,7 @@ function TrainingApp({ user }) {
   }, []);
   function openOverlay(name, payload = {}) {
     if (closing.current || overlayRef.current) return;
-    const next = { name, ...payload, origin: { tab, sub }, token: `${user.id}:${Date.now()}` };
+    const next = { name, ...payload, origin: { tab }, token: `${user.id}:${Date.now()}` };
     previousFocus.current = document.activeElement;
     overlayRef.current = next; setOverlay(next);
     history.pushState({ trainingOverlay: next.token }, '');
@@ -139,25 +143,22 @@ function TrainingApp({ user }) {
     if (!current) { action?.(); return; }
     afterClose.current = action || null;
     if (history.state?.trainingOverlay === current.token) { closing.current = true; history.back(); }
-    else { if (dirty.current) { dirty.current=false; setRevision(x=>x+1); } overlayRef.current = null; setOverlay(null); setTab(current.origin.tab); setSub(current.origin.sub); afterClose.current = null; action?.(); }
+    else { if (dirty.current) { dirty.current=false; setRevision(x=>x+1); } overlayRef.current = null; setOverlay(null); setTab(current.origin.tab); afterClose.current = null; action?.(); }
   }
-  function navigate(next) { const action = () => { setTab(next); if (next === 'dashboard') setSub('overview'); }; if (overlayRef.current) closeOverlay(action); else action(); }
+  function navigate(next) { const action = () => setTab(next); if (overlayRef.current) closeOverlay(action); else action(); }
   const nav = <nav className="nav" aria-label="Main navigation">{TABS.map(t => <button key={t.k} className={tab === t.k ? 'on' : ''} onClick={() => navigate(t.k)} aria-current={tab === t.k ? 'page' : undefined}><Icon name={t.k}/>{t.n}</button>)}</nav>;
   const onSchedule = (item, initialMode='move', weekStart) => openOverlay('schedule', { item, initialMode, weekStart });
   const onPain = date => openOverlay('pain', { date: typeof date === 'string' ? date : undefined });
   const onDaily = () => openOverlay('daily');
   const onRun = type => openOverlay('warmup', { type });
   const onStart = day => openOverlay('session', { day });
-  const subnav = <div className="wrap phase2-subnav"><div className="seg" aria-label="Dashboard views">{['today', 'progress'].map(v => <button key={v} className={sub === v ? 'on' : ''} onClick={() => setSub(v)}>{v[0].toUpperCase() + v.slice(1)}</button>)}<span className="swipe-hint">Swipe ⇄</span></div></div>;
   return <>
-    <main className="training-shell" onTouchStart={e=>{if(e.target.closest('input,textarea,select,button')){swipe.current=null;return;}const t=e.touches[0];swipe.current={x:t.clientX,y:t.clientY};}} onTouchEnd={e=>{if(tab!=='dashboard'||sub==='overview'||!swipe.current)return;const t=e.changedTouches[0],dx=t.clientX-swipe.current.x,dy=t.clientY-swipe.current.y;swipe.current=null;if(Math.abs(dx)>70&&Math.abs(dy)<40)setSub(dx<0?'progress':'today');}} aria-hidden={!!overlay} inert={overlay ? '' : undefined}>
-      {tab === 'dashboard' && <>
-        {sub === 'overview' && <Dashboard userId={user.id} revision={revision} onPain={onPain} onDaily={onDaily} onRun={onRun} onStart={onStart} onToday={() => setSub('today')} onProgress={() => setSub('progress')} onWeek={date => {setWeekDate(date);navigate('week');}} onSettings={() => navigate('settings')} email={user.email}/>}
-        {sub === 'today' && <Today onWorkout={day => openOverlay('workout',{day})} onCommute={trip => openOverlay('commute',trip)} onSchedule={onSchedule} subtabs={subnav} onFood={food => openOverlay('food', { food })} key={revision} onStart={onStart} onPain={onPain} onDaily={onDaily} onRun={onRun} userId={user.id} beepEnabled={beepEnabled}/>}
-        {sub === 'progress' && <Progress userId={user.id} revision={revision} subtabs={subnav} onExport={() => openOverlay('export')}/>}
-      </>}
+    <main className="training-shell" aria-hidden={!!overlay} inert={overlay ? '' : undefined}>
+      {tab === 'dashboard' && <Dashboard userId={user.id} revision={revision} onPain={onPain} onDaily={onDaily} onRun={onRun} onStart={onStart} onToday={() => navigate('today')} onProgress={() => navigate('progress')} onWeek={date => {setWeekDate(date);navigate('week');}} onSettings={() => navigate('settings')} email={user.email}/>}
+      {tab === 'today' && <Today onWorkout={day => openOverlay('workout',{day})} onCommute={trip => openOverlay('commute',trip)} onSchedule={onSchedule} onFood={food => openOverlay('food', { food })} key={revision} onStart={onStart} onPain={onPain} onDaily={onDaily} onRun={onRun} userId={user.id} beepEnabled={beepEnabled}/>}
+      {tab === 'progress' && <Progress userId={user.id} revision={revision} onAcwr={() => openOverlay('acwr')} onExport={() => openOverlay('export')}/>}
       {tab === 'week' && <Week initialDate={weekDate} userId={user.id} revision={revision} onSchedule={onSchedule}/>}
-      {tab === 'diary' && <><Diary userId={user.id} revision={revision} onPain={onPain} onExport={() => openOverlay('export')}/></>}
+      {tab === 'diary' && <Diary userId={user.id} revision={revision} onPain={onPain} onFuel={run => openOverlay('fuel', { run })} onExport={() => openOverlay('export')}/>}
       {tab === 'settings' && <Settings user={user} onSaved={value=>{setBeepEnabled(value.beep_enabled);changed();}} onWorkout={day=>openOverlay('workout',{day})} onExport={()=>openOverlay('export')} onLogs={()=>openOverlay('log')} onPain={onPain}/>}
 
       {nav}
@@ -168,8 +169,10 @@ function TrainingApp({ user }) {
       {overlay.name === 'commute' && <CommuteLog userId={user.id} direction={overlay.direction} leg={overlay.leg} onChanged={changed} onClose={() => closeOverlay()}/>}
       {overlay.name === 'food' && <FoodLog userId={user.id} initialFood={overlay.food} onChanged={changed} onClose={() => closeOverlay()}/>}
       {overlay.name === 'pain' && <PainLog initialDate={overlay.date} userId={user.id} onClose={() => closeOverlay()} onChanged={changed}/>}
+      {overlay.name === 'fuel' && <FuelLog userId={user.id} run={overlay.run} onChanged={changed} onClose={() => closeOverlay()}/>}
+      {overlay.name === 'acwr' && <AcwrDetail onClose={() => closeOverlay()}/>}
       {overlay.name === 'daily' && <DailyBlock userId={user.id} beepEnabled={beepEnabled} onClose={() => closeOverlay()} onChanged={changed}/>}
-      {overlay.name === 'warmup' && <WarmupTimer type={overlay.type} userId={user.id} beepEnabled={beepEnabled} onClose={() => closeOverlay()} onDone={() => closeOverlay(() => { setTab('dashboard'); setSub('today'); })}/>}
+      {overlay.name === 'warmup' && <WarmupTimer type={overlay.type} userId={user.id} beepEnabled={beepEnabled} onClose={() => closeOverlay()} onDone={() => closeOverlay(() => setTab('today'))}/>}
       {overlay.name === 'session' && <Session day={overlay.day} beepEnabled={beepEnabled} userId={user.id} onExit={() => { changed(); closeOverlay(); }}/>}
       {['log', 'export'].includes(overlay.name) && <><div className="wrap phase2-tools"><button className="btn ghost" onClick={() => { changed(); closeOverlay(); }}>‹ Back</button></div>{overlay.name === 'log' ? <LogPanel/> : <ExportPanel userId={user.id}/>}</>}
       {nav}

@@ -7,6 +7,7 @@ import { shiftDate } from '../lib/phase2-data.mjs';
 import { loadWorkout } from '../lib/workout-client';
 import { loadSchedule } from '../lib/schedule-client';
 import { localDate, latestPain, PAIN_MOVEMENTS, sessionProgress } from '../lib/phase2-data.mjs';
+import Icon from './Icons';
 
 export default function Dashboard({ userId, revision, onPain, onRun, onDaily, onStart, onToday, onProgress, onWeek, onSettings, email }) {
   const [data, setData] = useState(null);
@@ -46,7 +47,7 @@ export default function Dashboard({ userId, revision, onPain, onRun, onDaily, on
     })(); return () => { alive = false; };
   }, [userId, revision, retry, date]);
   return <div className="wrap dashboard-screen">
-    <header className="dashboard-heading"><div><p className="u-label">{new Date(`${date}T12:00:00`).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'long'})}</p><h1>Dashboard</h1></div><button className="avatar" onClick={onSettings} aria-label="Open settings">{email?.slice(0,2).toUpperCase()||'ME'}</button></header>
+    <header className="dashboard-heading"><div><p className="u-label">{new Date(`${date}T12:00:00`).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'long'})}</p><h1>Dashboard</h1></div><button className="avatar gear" onClick={onSettings} aria-label="Open settings" title={email||'Settings'}><Icon name="settings" size={19}/></button></header>
     <DashboardWeek userId={userId} revision={revision} date={date} onOpen={onWeek}/>
     {error ? <div className="card"><div className="flag" role="alert">{error}</div><button className="btn ghost" onClick={() => setRetry(x => x + 1)}>Retry</button></div> : !data ? <p className="muted">Loading today’s programme…</p> : <>
       <div className="section-heading"><h2>Today</h2><button className="text-action" onClick={onToday}>Open →</button></div>

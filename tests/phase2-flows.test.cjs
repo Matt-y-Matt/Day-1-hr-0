@@ -10,9 +10,12 @@ const root = path.resolve(__dirname, '..');
 const date = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 
 // In-memory transport tests mount the real components. No network or real records.
-function database(seed, fail = () => false) {
+function database(seed, fail = () => false, rpcs = {}) {
   const tables = structuredClone(seed), writes = [];
-  return { tables, writes, from(table) {
+  return { tables, writes,
+    async rpc(name, args) { writes.push({ op: 'rpc', name, args });
+      return rpcs[name] ? { data: rpcs[name](args), error: null } : { data: null, error: { message: `No stub for ${name}` } }; },
+    from(table) {
     const q = { table, op: 'select', filters: [], body: null };
     const b = {
       select() { return b; }, eq(k,v) { q.filters.push(r=>r[k]===v); return b; },
@@ -444,4 +447,118 @@ test('Today renders body and food while programme requests are still pending',as
  const Today=mountSource('components/Today.js',{from:()=>q});
  await act(async()=>{mounted=create(React.createElement(Today,{userId:'test-user'}));});
  const content=text(mounted.toJSON());assert.match(content,/Body/);assert.match(content,/Food/);assert.match(content,/Loading today/);assert.doesNotMatch(content,/Full rest day/);
+});
+
+// ---------- Fuel ----------
+const FUEL_PRODUCTS = [
+  { id: 'gel-std', user_id: null, name: 'Decathlon Aptonia gel (standard)', kind: 'gel', carbs_g: 25, ratio: null, note: 'Single-carbohydrate.' },
+  { id: 'gel-dual', user_id: null, name: 'Decathlon Aptonia gel 1:0.8', kind: 'gel', carbs_g: 30, ratio: '1:0.8 glucose:fructose', note: 'Dual-source.' },
+  { id: 'iso', user_id: null, name: 'Isotonic drink', kind: 'drink', carbs_g: 30, ratio: null, note: null },
+];
+const RUN = { id: 'run-1', date: date(), run_type: 'long', duration_min: 120, water_ml: null, isotonic_ml: null };
+function fuelDb(overrides = {}) {
+  return database({
+    fuel_products: FUEL_PRODUCTS, fuel_logs: [], runs: [{ ...RUN, ...overrides }],
+    v_run_fuel: [{ run_id: 'run-1', date: date(), duration_min: 120, carbs_g: 0, fluid_ml: 0, carbs_per_hr: 0, ml_per_hr: 0, timeline: null }],
+  });
+}
+async function mountFuel(db) {
+  const Fuel = mountSource('components/Fuel.js', db);
+  await act(async () => { mounted = create(React.createElement(Fuel, { userId: 'test-user', run: RUN, onClose() {}, onChanged() {} })); });
+  await flush();
+  return mounted;
+}
+
+test('fuel records which gel was taken and the minute it was taken', async () => {
+  const db = fuelDb();
+  const tree = await mountFuel(db);
+  await act(async () => tree.root.findByProps({ id: 'fuel-minute' }).props.onChange({ target: { value: '45' } }));
+  await act(async () => button(tree, 'Add').props.onClick());
+  await flush();
+  assert.equal(db.tables.fuel_logs.length, 1);
+  const row = db.tables.fuel_logs[0];
+  assert.equal(row.at_minute, 45);
+  assert.equal(row.qty, 1);
+  assert.equal(row.product_id, 'gel-std');
+  assert.equal(row.run_id, 'run-1');
+  assert.equal(row.user_id, 'test-user');
+});
+
+test('fuel refuses a minute past the end of the run rather than recording it', async () => {
+  const db = fuelDb();
+  const tree = await mountFuel(db);
+  await act(async () => tree.root.findByProps({ id: 'fuel-minute' }).props.onChange({ target: { value: '300' } }));
+  await act(async () => button(tree, 'Add').props.onClick());
+  await flush();
+  assert.equal(db.tables.fuel_logs.length, 0);
+  assert.match(text(tree.root.findByProps({ role: 'alert' })), /120 min/);
+});
+
+test('isotonic volume mirrors a carbohydrate row so carbs per hour is not understated', async () => {
+  const db = fuelDb();
+  const tree = await mountFuel(db);
+  await act(async () => tree.root.findByProps({ id: 'fuel-isotonic' }).props.onChange({ target: { value: '1000' } }));
+  await act(async () => tree.root.findByProps({ id: 'fuel-water' }).props.onChange({ target: { value: '500' } }));
+  await act(async () => button(tree, 'Save fluid').props.onClick());
+  await flush();
+  assert.equal(db.tables.runs[0].isotonic_ml, 1000);
+  assert.equal(db.tables.runs[0].water_ml, 500);
+  // 1000 ml = two 500 ml servings = 60 g carbohydrate the view would otherwise miss.
+  const mirrored = db.tables.fuel_logs.filter(r => r.product_id === 'iso');
+  assert.equal(mirrored.length, 1);
+  assert.equal(mirrored[0].qty, 2);
+});
+
+test('clearing isotonic removes its mirrored carbohydrate row', async () => {
+  const db = fuelDb({ isotonic_ml: 500 });
+  db.tables.fuel_logs.push({ id: 'existing-iso', user_id: 'test-user', run_id: 'run-1', date: date(), product_id: 'iso', at_minute: 0, qty: 1 });
+  const tree = await mountFuel(db);
+  await act(async () => tree.root.findByProps({ id: 'fuel-isotonic' }).props.onChange({ target: { value: '' } }));
+  await act(async () => button(tree, 'Save fluid').props.onClick());
+  await flush();
+  assert.equal(db.tables.runs[0].isotonic_ml, null);
+  assert.equal(db.tables.fuel_logs.filter(r => r.product_id === 'iso').length, 0);
+});
+
+// ---------- ACWR transparency ----------
+const ACWR = {
+  basis: 'time', unit: 'minutes',
+  formula: 'ACWR = acute ÷ chronic.',
+  why_time: 'Time is the default basis.',
+  acute_window: '2026-09-09 to 2026-09-15', chronic_window: '2026-08-19 to 2026-09-15',
+  acute: 66, total_28d: 379.2, chronic_avg: 94.8, ratio: 0.7,
+  bands: [
+    { range: '> 1.5', meaning: 'Spike.' }, { range: '1.3 – 1.5', meaning: 'Climbing fast.' },
+    { range: '0.8 – 1.3', meaning: 'Sensible progression.' }, { range: '< 0.8', meaning: 'Detraining or deliberate cutback.' },
+  ],
+  caveat: 'Gabbett thresholds are contested.',
+  rows: [{ date: '2026-09-14', kind: 'run', value: 66, in_acute: true }, { date: '2026-08-30', kind: 'lift', value: 45, in_acute: false }],
+};
+
+test('load detail shows the arithmetic and marks the band the ratio falls in', async () => {
+  const db = database({}, () => false, { acwr_detail: ({ basis }) => ({ ...ACWR, basis }) });
+  const Acwr = mountSource('components/AcwrDetail.js', db);
+  await act(async () => { mounted = create(React.createElement(Acwr, { onClose() {} })); });
+  await flush();
+  const all = text(mounted.root.findByType('div'));
+  assert.match(all, /0\.70/);          // the ratio itself
+  assert.match(all, /66/);             // acute
+  assert.match(all, /94\.8/);          // chronic average
+  assert.match(all, /Detraining or deliberate cutback/); // the band it lands in
+  assert.match(all, /contested/);      // the honest caveat survives
+  // every contributing session is listed, flagged for its window
+  assert.match(all, /2026-09-14|14 Sep/);
+  assert.match(all, /2026-08-30|30 Aug/);
+});
+
+test('load detail re-asks the database when the basis changes', async () => {
+  const db = database({}, () => false, { acwr_detail: ({ basis }) => ({ ...ACWR, basis, unit: basis === 'distance' ? 'km' : 'minutes' }) });
+  const Acwr = mountSource('components/AcwrDetail.js', db);
+  await act(async () => { mounted = create(React.createElement(Acwr, { onClose() {} })); });
+  await flush();
+  await act(async () => button(mounted, 'Distance').props.onClick());
+  await flush();
+  const calls = db.writes.filter(w => w.op === 'rpc').map(w => w.args.basis);
+  assert.deepEqual(calls, ['time', 'distance']);
+  assert.match(text(mounted.root.findByType('div')), /km/);
 });

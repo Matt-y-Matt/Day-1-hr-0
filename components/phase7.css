@@ -1,0 +1,23 @@
+/* Five tabs instead of four, Settings on the header gear, and the two
+   screens that explain a number rather than just printing it. */
+
+/* Dashboard · Today · Progress · Week · Diary — "Dashboard" is the longest
+   label and has to survive 390px / 5. Keep it on one line rather than letting
+   it wrap and shove the icons out of alignment. */
+.nav button { font-size: 9.5px; letter-spacing: -0.01em; min-width: 0; }
+.nav button > :last-child { white-space: nowrap; }
+
+/* The gear replaces the initials, so the circle now holds an icon. */
+.avatar.gear { color: var(--ink); }
+.avatar.gear svg { display: block; }
+
+/* The band the current ratio actually falls in. */
+.acwr-screen tr.is-active td { color: var(--ink); background: rgba(232, 70, 42, 0.12); }
+.acwr-screen tr.is-active td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
+
+.acwr-screen .seg { margin-bottom: 12px; }
+.acwr-screen table td:nth-child(3) { font-variant-numeric: tabular-nums; }
+
+/* Fuel figures are read mid-run on a phone, so give the numbers room. */
+.fuel-screen .big { font-size: 26px; }
+.fuel-screen .pill { margin: 0 8px 0 0; }
