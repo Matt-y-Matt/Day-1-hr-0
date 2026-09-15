@@ -67,13 +67,92 @@
     border-right: 0;
   }
 
-  /* One column still — a card's two ends drift apart if it gets much wider
-     than this, and long measures are harder to read, not easier. Sat against
-     the rail rather than centred in the leftover space: centring leaves a
-     dead gutter beside the rail and reads like a misplaced document. */
-  .wrap, .phase2-timer-stack {
-    max-width: 760px;
+  /* A phone stacks cards because it has one column of room. A desktop does
+     not, so the stack becomes a grid and the cards sit side by side. The
+     track minimum is close to the 390px the cards were drawn at, so each one
+     keeps roughly its designed proportions instead of stretching. */
+  .wrap {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 36px 40px 64px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 14px;
+    align-content: start;
+    /* Without this a short card stretches to the height of the tallest thing
+       beside it — the pain row grew to the height of the body card and sat in
+       600px of empty space. Ragged row bottoms are the better trade. */
+    align-items: start;
+  }
+  /* The grid gap owns the spacing now. */
+  .wrap > * { margin-top: 0; margin-bottom: 0; }
+
+  /* Anything that titles, frames or warns about a section owns its own row. */
+  .wrap > h1,
+  .wrap > h2,
+  .wrap > header,
+  .wrap > .sub,
+  .wrap > .u-label,
+  .wrap > .build-label,
+  .wrap > .section-heading,
+  .wrap > .seg,
+  .wrap > .flag,
+  .wrap > .row,
+  .wrap > .calendar-card,
+  .wrap > .table-scroll,
+  .wrap > [role="status"],
+  .wrap > [role="alert"],
+  /* Loose paragraphs are section prose and empty states ("No strength sets
+     recorded yet"). Left in a single track, unrelated cards pull up beside
+     them and look like they belong to that section. */
+  .wrap > p { grid-column: 1 / -1; }
+
+  /* A primary action belongs under what it acts on, not in the next column.
+     Full width would make a 1200px button, so give it its own row at a
+     normal size. */
+  .wrap > .btn,
+  .wrap > fieldset > .btn,
+  .wrap > .today-session > .btn {
+    grid-column: 1 / -1;
+    justify-self: start;
+    min-width: 280px;
+    width: auto;
+  }
+
+  /* A field in a full-width row would otherwise stretch the whole way. */
+  .wrap > .row input,
+  .wrap > .row select,
+  .wrap > .row label { max-width: 300px; }
+
+  /* Containers that hold their own stack of cards become grids in turn,
+     otherwise their contents would re-stack inside a single track. */
+  .wrap > fieldset,
+  .wrap > .today-session,
+  .wrap > .settings-rows,
+  .wrap > .week-list {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 14px;
+    align-content: start;
+    align-items: start;
     margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  /* An overlay is one task at a time — reading it as a grid would scatter a
+     form across the screen. Keep it a single centred column. */
+  .phase2-overlay .wrap {
+    display: block;
+    max-width: 720px;
+  }
+  .phase2-overlay .wrap > * + * { margin-top: 12px; }
+
+  /* A guided timer is a single focused thing, never a grid. */
+  .phase2-timer-stack {
+    max-width: 640px;
+    margin: 0 auto;
     padding: 36px 40px 64px;
   }
 

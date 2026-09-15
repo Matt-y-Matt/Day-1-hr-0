@@ -237,7 +237,7 @@ function capture(name, tree) {
   const render=n=>typeof n==='string'?n:!n?null:React.createElement(n.type,{...Object.fromEntries(Object.entries(n.props).filter(([k])=>!k.startsWith('on'))),...(['input','textarea','select'].includes(n.type) && (n.props.value != null || n.props.checked != null) ? {readOnly:true,onChange:()=>{}}: {})},...(n.children||[]).map(render));
   const markup=require('react-dom/server').renderToStaticMarkup(render(tree.toJSON()));
   const fontFile=path.join(root,"..","artifacts","reference","00.html"); const fonts=fs.existsSync(fontFile)?fs.readFileSync(fontFile,"utf8").match(/<style>([\s\S]*?)<\/style>/)?.[1]?.replace(/url\("([^"]+)"\)/g,'url("../reference/$1")')||"":"";
-  const css=['app/globals.css','components/phase2-timers.css','components/phase2-dashboard.css','components/phase3.css','components/phase4.css','components/phase5.css','components/phase6.css','components/standalone.css'].map(f=>fs.readFileSync(path.join(root,f),'utf8')).join('\n');
+  const css=['app/globals.css','components/phase2-timers.css','components/phase2-dashboard.css','components/phase3.css','components/phase4.css','components/phase5.css','components/phase6.css','components/standalone.css','components/phase7.css','components/desktop.css'].map(f=>fs.readFileSync(path.join(root,f),'utf8')).join('\n');
   const dir=path.join(root,'..','artifacts','phase3-preview');fs.mkdirSync(dir,{recursive:true});
   fs.writeFileSync(path.join(dir,`${name}.html`),`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Phase 3 ${name} · synthetic test data</title><style>:root{--font-sans:"IBM Plex Sans",sans-serif;--font-mono:"IBM Plex Mono",monospace}${fonts}${css}</style>${markup}`);
 }
