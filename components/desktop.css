@@ -1,0 +1,120 @@
+/* ============================================================
+   DESKTOP
+   The app is designed at 390px and that stays the source of truth.
+   This layer only widens it. Below 600px nothing here applies.
+
+   600–999px  wider reading column, thumb nav kept
+   >= 1000px  the bottom bar becomes a left rail and overlays fill
+              the content region beside it
+   ============================================================ */
+
+/* ---------- tablet: reclaim the side gutters ---------- */
+@media (min-width: 600px) {
+  .training-shell { max-width: 620px; }
+  .wrap, .phase2-timer-stack { max-width: 620px; padding-left: 24px; padding-right: 24px; }
+  .phase2-overlay { width: min(100%, 620px); }
+  .nav { width: min(100%, 620px); }
+}
+
+/* ---------- desktop: bottom bar becomes a left rail ---------- */
+@media (min-width: 1000px) {
+  :root { --rail: 236px; }
+
+  /* Both <main> and an open overlay render their own copy of the nav. They
+     are fixed to the same box, so they stack exactly as they do on a phone —
+     the overlay's copy stays reachable while the one behind it is inert. */
+  .nav {
+    top: 0; bottom: 0; left: 0; right: auto;
+    transform: none;
+    width: var(--rail);
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: stretch;
+    gap: 3px;
+    padding: 22px 14px;
+    border-top: 0;
+    border-right: 1px solid var(--card-border);
+  }
+  .nav button {
+    flex: 0 0 auto;
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 13px;
+    height: 46px;
+    padding: 0 13px;
+    border-radius: 11px;
+    font: 500 13.5px/1 var(--sans);
+    letter-spacing: -0.01em;
+    text-align: left;
+  }
+  .nav button > :last-child { white-space: nowrap; }
+  .nav button.on { background: rgba(232, 70, 42, 0.12); font-weight: 600; }
+
+  /* The rail owns the left edge; everything else lives to the right of it. */
+  .training-shell {
+    max-width: none;
+    margin: 0 0 0 var(--rail);
+    border-left: 0;
+    border-right: 0;
+  }
+  .phase2-overlay {
+    left: var(--rail); right: 0;
+    width: auto; max-width: none;
+    transform: none;
+    margin: 0;
+    border-left: 0;
+    border-right: 0;
+  }
+
+  /* One column still — a card's two ends drift apart if it gets much wider
+     than this, and long measures are harder to read, not easier. Sat against
+     the rail rather than centred in the leftover space: centring leaves a
+     dead gutter beside the rail and reads like a misplaced document. */
+  .wrap, .phase2-timer-stack {
+    max-width: 760px;
+    margin: 0;
+    padding: 36px 40px 64px;
+  }
+
+  body { font-size: 15px; }
+  h1 { font-size: 26px; }
+
+  /* Nothing is thumb-reached any more, so rows can tighten slightly and the
+     eye gets more of the screen at once. */
+  .cockpit-row { min-height: 62px; }
+
+  /* Tables have room to breathe rather than scroll. */
+  .table-scroll table { min-width: 0; }
+}
+
+/* On a very wide screen the column stays put rather than stretching; the
+   extra pixels become margin, not longer lines. */
+
+/* ---------- a mouse is present ---------- */
+@media (hover: hover) and (pointer: fine) {
+  .nav button:hover { color: var(--ink); background: var(--inset); }
+  .nav button.on:hover { color: var(--accent); }
+  .btn:hover:not(:disabled) { filter: brightness(1.07); }
+  .btn.ghost:hover:not(:disabled),
+  .chip:hover:not(:disabled) { background: var(--raised); border-color: var(--raised-border); }
+  .cockpit-row:hover { background: var(--raised); }
+  .calendar-days button:hover { background: var(--inset); }
+  .avatar:hover { border-color: var(--raised-border); color: var(--ink); }
+  .text-action:hover { color: var(--accent); }
+  /* Rows that do something when clicked should say so before the click. */
+  .cockpit-row, .calendar-days button, .avatar, .text-action { transition: background .14s ease, color .14s ease, border-color .14s ease; }
+}
+
+/* Keyboard users exist on desktop in a way they do not on a phone. */
+@media (min-width: 1000px) {
+  .nav button:focus-visible,
+  .btn:focus-visible,
+  .chip:focus-visible,
+  .cockpit-row:focus-visible,
+  .avatar:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cockpit-row, .calendar-days button, .avatar, .text-action { transition: none; }
+}

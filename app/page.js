@@ -27,6 +27,7 @@ import { WarmupTimer } from '../components/Timers';
 import '../components/phase2-dashboard.css';
 import '../components/standalone.css';
 import '../components/phase7.css';
+import '../components/desktop.css';
 
 export default function Page() {
   const [ready, setReady] = useState(false);
