@@ -197,3 +197,24 @@
 @media (prefers-reduced-motion: reduce) {
   .cockpit-row, .calendar-days button, .avatar, .text-action { transition: none; }
 }
+
+/* Day browsing uses the same layout and date across every logging surface. */
+.date-navigation { gap: 8px; flex-wrap: wrap; }
+.date-navigation label { flex: 1; min-width: 145px; }
+.day-support { min-width: 0; }
+.exercise-detail summary { cursor: pointer; list-style: none; }
+.exercise-detail summary::after { content: '▾'; color: var(--dim); }
+.week-date, .week-rest { color: inherit; background: transparent; border: 0; text-align: left; cursor: pointer; }
+.photo-zoom { display: block; width: 100%; padding: 0; border: 0; background: transparent; cursor: zoom-in; }
+.photo-zoom img { display: block; width: 100%; object-fit: cover; border-radius: 8px; }
+.photo-lightbox { background: var(--card); color: var(--ink); border: 1px solid var(--card-border); border-radius: 12px; max-width: 95vw; max-height: 95dvh; padding: 16px; }
+.photo-lightbox::backdrop { background: rgba(0,0,0,.85); }
+.photo-lightbox > img { display: block; max-width: 85vw; max-height: 78dvh; object-fit: contain; margin-top: 12px; }
+@media (min-width: 1000px) {
+  .today-screen { grid-template-columns: minmax(0,1.35fr) minmax(300px,1fr); }
+  .today-screen > .daily-row, .today-screen > .pain-row { grid-column: 1 / -1; }
+  .today-screen > .today-session { grid-column: 1; display: block; }
+  .today-screen > .today-session > * + * { margin-top: 14px; }
+  .today-screen > .day-support { grid-column: 2; }
+  .today-screen > .day-support > * + * { margin-top: 14px; }
+}

@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { supa, getKey, BUILD } from '../lib/supabase';
+import { supa, getKey, BUILD, today } from '../lib/supabase';
 import Icon from '../components/Icons';
 import Today from '../components/Today';
 import Settings from '../components/Settings';
@@ -75,6 +75,8 @@ const TABS = [{ k: 'dashboard', n: 'Dashboard' }, { k: 'today', n: 'Today' }, { 
 function TrainingApp({ user }) {
   const [tab, setTab] = useState('dashboard');
   const [weekDate,setWeekDate]=useState(null);
+  const [selectedDate,setSelectedDate]=useState(today);
+  const openDay=date=>{setSelectedDate(date);setTab('today');};
   const [overlay, setOverlay] = useState(null);
   const [revision, setRevision] = useState(0);
   const [beepEnabled, setBeepEnabled] = useState(false);
@@ -150,15 +152,15 @@ function TrainingApp({ user }) {
   const nav = <nav className="nav" aria-label="Main navigation">{TABS.map(t => <button key={t.k} className={tab === t.k ? 'on' : ''} onClick={() => navigate(t.k)} aria-current={tab === t.k ? 'page' : undefined}><Icon name={t.k}/>{t.n}</button>)}</nav>;
   const onSchedule = (item, initialMode='move', weekStart) => openOverlay('schedule', { item, initialMode, weekStart });
   const onPain = date => openOverlay('pain', { date: typeof date === 'string' ? date : undefined });
-  const onDaily = () => openOverlay('daily');
+  const onDaily = date => openOverlay('daily', {date: typeof date === 'string' ? date : today()});
   const onRun = type => openOverlay('warmup', { type });
-  const onStart = day => openOverlay('session', { day });
+  const onStart = day => openOverlay('session', { day, date: day.schedule_date || today() });
   return <>
     <main className="training-shell" aria-hidden={!!overlay} inert={overlay ? '' : undefined}>
-      {tab === 'dashboard' && <Dashboard userId={user.id} revision={revision} onPain={onPain} onDaily={onDaily} onRun={onRun} onStart={onStart} onToday={() => navigate('today')} onProgress={() => navigate('progress')} onWeek={date => {setWeekDate(date);navigate('week');}} onSettings={() => navigate('settings')} email={user.email}/>}
-      {tab === 'today' && <Today onWorkout={day => openOverlay('workout',{day})} onCommute={trip => openOverlay('commute',trip)} onSchedule={onSchedule} onFood={food => openOverlay('food', { food })} key={revision} onStart={onStart} onPain={onPain} onDaily={onDaily} onRun={onRun} userId={user.id} beepEnabled={beepEnabled}/>}
+      {tab === 'dashboard' && <Dashboard userId={user.id} revision={revision} onPain={onPain} onDaily={onDaily} onRun={onRun} onStart={onStart} onToday={() => openDay(today())} onProgress={() => navigate('progress')} onWeek={date => {setWeekDate(date);navigate('week');}} onSettings={() => navigate('settings')} email={user.email}/>}
+      {tab === 'today' && <Today date={selectedDate} onDate={setSelectedDate} onLog={runType=>openOverlay('log',{date:selectedDate,initialTab:'run',runType})} onWorkout={day => openOverlay('workout',{day})} onCommute={trip => openOverlay('commute',{date:selectedDate,...trip})} onSchedule={onSchedule} onFood={food => openOverlay('food', { food, date:selectedDate })} key={`${revision}:${selectedDate}`} onStart={onStart} onPain={()=>onPain(selectedDate)} onDaily={()=>onDaily(selectedDate)} onRun={onRun} userId={user.id} beepEnabled={beepEnabled}/>}
       {tab === 'progress' && <Progress userId={user.id} revision={revision} onAcwr={() => openOverlay('acwr')} onExport={() => openOverlay('export')}/>}
-      {tab === 'week' && <Week initialDate={weekDate} userId={user.id} revision={revision} onSchedule={onSchedule}/>}
+      {tab === 'week' && <Week onOpenDay={openDay} initialDate={weekDate} userId={user.id} revision={revision} onSchedule={onSchedule}/>}
       {tab === 'diary' && <Diary userId={user.id} revision={revision} onPain={onPain} onFuel={run => openOverlay('fuel', { run })} onExport={() => openOverlay('export')}/>}
       {tab === 'settings' && <Settings user={user} onSaved={value=>{setBeepEnabled(value.beep_enabled);changed();}} onWorkout={day=>openOverlay('workout',{day})} onExport={()=>openOverlay('export')} onLogs={()=>openOverlay('log')} onPain={onPain}/>}
 
@@ -167,15 +169,15 @@ function TrainingApp({ user }) {
     {overlay && <div ref={dialogRef} tabIndex={-1} className={`phase2-overlay overlay-${overlay.name}`} role="dialog" aria-modal="true" aria-label={overlay.name} key={overlay.token}>
       {overlay.name === 'workout' && <WorkoutEditor userId={user.id} day={overlay.day} onChanged={changed} onClose={()=>closeOverlay()}/>}
       {overlay.name === 'schedule' && <ScheduleEditor userId={user.id} item={overlay.item} initialMode={overlay.initialMode} weekStart={overlay.weekStart} onChanged={changed} onClose={() => closeOverlay()}/>}
-      {overlay.name === 'commute' && <CommuteLog userId={user.id} direction={overlay.direction} leg={overlay.leg} onChanged={changed} onClose={() => closeOverlay()}/>}
-      {overlay.name === 'food' && <FoodLog userId={user.id} initialFood={overlay.food} onChanged={changed} onClose={() => closeOverlay()}/>}
+      {overlay.name === 'commute' && <CommuteLog initialDate={overlay.date} userId={user.id} direction={overlay.direction} leg={overlay.leg} onChanged={changed} onClose={() => closeOverlay()}/>}
+      {overlay.name === 'food' && <FoodLog initialDate={overlay.date} userId={user.id} initialFood={overlay.food} onChanged={changed} onClose={() => closeOverlay()}/>}
       {overlay.name === 'pain' && <PainLog initialDate={overlay.date} userId={user.id} onClose={() => closeOverlay()} onChanged={changed}/>}
       {overlay.name === 'fuel' && <FuelLog userId={user.id} run={overlay.run} onChanged={changed} onClose={() => closeOverlay()}/>}
-      {overlay.name === 'acwr' && <AcwrDetail onClose={() => closeOverlay()}/>}
-      {overlay.name === 'daily' && <DailyBlock userId={user.id} beepEnabled={beepEnabled} onClose={() => closeOverlay()} onChanged={changed}/>}
+      {overlay.name === 'acwr' && <AcwrDetail userId={user.id} onClose={() => closeOverlay()}/>}
+      {overlay.name === 'daily' && <DailyBlock initialDate={overlay.date} userId={user.id} beepEnabled={beepEnabled} onClose={() => closeOverlay()} onChanged={changed}/>}
       {overlay.name === 'warmup' && <WarmupTimer type={overlay.type} userId={user.id} beepEnabled={beepEnabled} onClose={() => closeOverlay()} onDone={() => closeOverlay(() => setTab('today'))}/>}
-      {overlay.name === 'session' && <Session day={overlay.day} beepEnabled={beepEnabled} userId={user.id} onExit={() => { changed(); closeOverlay(); }}/>}
-      {['log', 'export'].includes(overlay.name) && <><div className="wrap phase2-tools"><button className="btn ghost" onClick={() => { changed(); closeOverlay(); }}>‹ Back</button></div>{overlay.name === 'log' ? <LogPanel/> : <ExportPanel userId={user.id}/>}</>}
+      {overlay.name === 'session' && <Session date={overlay.date} day={overlay.day} beepEnabled={beepEnabled} userId={user.id} onExit={() => { changed(); closeOverlay(); }}/>}
+      {['log', 'export'].includes(overlay.name) && <><div className="wrap phase2-tools"><button className="btn ghost" onClick={() => { changed(); closeOverlay(); }}>‹ Back</button></div>{overlay.name === 'log' ? <LogPanel initialDate={overlay.date} initialTab={overlay.initialTab} runType={overlay.runType} userId={user.id} onChanged={changed}/> : <ExportPanel userId={user.id}/>}</>}
       {nav}
     </div>}
   </>;

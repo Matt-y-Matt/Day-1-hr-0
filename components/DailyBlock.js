@@ -14,13 +14,13 @@ async function dailySetId(sessionId, exerciseId, setNumber) {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-export default function DailyBlock({ onClose, userId, beepEnabled = false, onChanged }) {
+export default function DailyBlock({ onClose, userId, beepEnabled = false, onChanged, initialDate }) {
   const [days, setDays] = useState([]), [day, setDay] = useState(null);
   const [items, setItems] = useState([]), [logs, setLogs] = useState([]), [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true), [error, setError] = useState(''), [active, setActive] = useState(null), [busy, setBusy] = useState(false);
   const [rest, setRest] = useState(null);
   const lock = useRef(false);
-  const [date] = useState(today);
+  const [date] = useState(initialDate || today());
   useEffect(() => {
     let live = true;
     (async () => {

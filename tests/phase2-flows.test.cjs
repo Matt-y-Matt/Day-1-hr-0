@@ -209,7 +209,7 @@ test('gym read failures cannot create a replacement session',async()=>{
   assert.match(text(mounted.toJSON()),/Simulated unavailable connection/);assert.equal(db.writes.length,0);
   assert.equal(buttons(mounted).some(b=>text(b).includes('Log set')),false);
 });
-test('body opens empty, accepts measurements and collapses only with both weights and all six photo views',async()=>{
+test('body opens empty, accepts measurements and collapses only with both weights and one optional photo',async()=>{
   const db=database({daily_log:[{id:'body',user_id:'test-user',date:date(),weight_am_kg:71,weight_pm_kg:null,waist_cm:83}],photos:['am','pm'].flatMap(slot=>['front','back','arm'].map(pose=>({id:slot+pose,user_id:'test-user',date:date(),slot,pose,storage_path:'test'})))});
   db.storage={from:()=>({createSignedUrl:async()=>({data:{signedUrl:'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=='}})})};
   const Body=mountSource('components/BodyCard.js',db);
@@ -242,16 +242,16 @@ function capture(name, tree) {
   fs.writeFileSync(path.join(dir,`${name}.html`),`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Phase 3 ${name} · synthetic test data</title><style>:root{--font-sans:"IBM Plex Sans",sans-serif;--font-mono:"IBM Plex Mono",monospace}${fonts}${css}</style>${markup}`);
 }
 
-test('Today composes the cockpit in order, with one Food card and nothing after the session',async()=>{
+test('Today composes the cockpit in order, with one Food card and training directly below tendon work',async()=>{
   const seed=gymSeed([]);seed.workout_days=[{id:'day',user_id:'test-user',name:'Upper Push',is_active:true,is_daily:false,weekday:((new Date().getDay()+6)%7)+1}];
   Object.assign(seed,{run_plan:[{id:'run',user_id:'test-user',date:date(),run_type:'easy',duration_min:40}],pain_logs:[],photos:[],daily_log:[],v_daily_nutrition:[],user_settings:[],foods:[],v_session_intensity:[],v_commute_weekly:[]});
   const db=database(seed);const Today=mountSource('components/Today.js',db);
   await act(async()=>{mounted=create(React.createElement(Today,{userId:'test-user',onFood(){},onPain(){},onDaily(){},onRun(){},onStart(){},subtabs:React.createElement('div',null,'Today / Progress')}));});await flush();
   const content=text(mounted.toJSON());
-  const labels=['Today / Progress','Pain not scored cold','Daily · tendon','Body · daily','Food · today','Commute','Start run'];
+  const labels=['Today / Progress','Pain not scored cold','Daily · tendon','Start run','Body · daily','Food · today','Commute'];
   const positions=labels.map(label=>{const p=content.indexOf(label);assert.ok(p>=0,label);return p;});
   assert.deepEqual(positions,[...positions].sort((a,b)=>a-b));assert.equal(buttons(mounted).filter(b=>text(b).includes('Search food')).length,1);
-  const children=mounted.toJSON().children.filter(n=>typeof n!=='string');assert.equal(children.at(-1).props.className,'today-session');
+  const children=mounted.toJSON().children.filter(n=>typeof n!=='string');assert.equal(children.at(-1).props.className,'day-support');
   capture('today',mounted);
 });
 test('body failed save stays expanded and retains typed values',async()=>{
@@ -266,7 +266,7 @@ test('body upload retry reuses the uploaded object and creates one photo row',as
   const db=database({daily_log:[],photos:[]},q=>fail && q.table==='photos' && q.op!=='select');
   db.storage={from:()=>({upload:async()=>{uploads++;return {data:{},error:null};},createSignedUrl:async()=>({data:{signedUrl:'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=='}})})};
   const Body=mountSource('components/BodyCard.js',db);await act(async()=>{mounted=create(React.createElement(Body,{userId:'test-user'}));});await flush();
-  const change=()=>mounted.root.findByProps({'aria-label':'AM front upload'}).props.onChange({target:{files:[{name:'test.png',size:100,lastModified:1,type:'image/png'}],value:'test.png'}});
+  const change=()=>mounted.root.findByProps({'aria-label':'front upload'}).props.onChange({target:{files:[{name:'test.png',size:100,lastModified:1,type:'image/png'}],value:'test.png'}});
   await act(change);assert.equal(db.tables.photos.length,0);assert.equal(uploads,1);fail=false;
   await act(change);assert.equal(db.tables.photos.length,1);assert.equal(uploads,1);assert.equal(db.tables.photos[0].user_id,'test-user');
 });
@@ -356,7 +356,7 @@ test('photo comparison signs selected private paths and keeps missing measuremen
 
 
 test('Progress renders recorded trends and separates pain movements without hardcoded markers',async()=>{
- const uid='test-user';const db=database({runs:[{id:'a',user_id:uid,date:'2026-09-01',run_type:'long',duration_min:60,distance_km:8,hr_avg:130},{id:'b',user_id:uid,date:date(),run_type:'long',duration_min:70,distance_km:10,hr_avg:132}],pain_logs:[{id:'p',user_id:uid,date:date(),site:'left_ankle_extensor',movement:'eversion',score:0}],daily_log:[],photos:[],set_logs:[],v_load_weekly:[],user_settings:[]});db.rpc=async()=>({data:[],error:null});const Progress=mountSource('components/Progress.js',db);await act(async()=>{mounted=create(React.createElement(Progress,{userId:uid}));});await flush();const output=text(mounted.toJSON());assert.match(output,/2\s+recorded runs/);assert.match(output,/Cold pain · dorsiflexion/);assert.match(output,/Cold pain · eversion/);assert.doesNotMatch(output,/62 →|4km →|VT2/);assert.match(output,/No photos for this view yet/);capture('progress',mounted);
+ const uid='test-user';const db=database({runs:[{id:'a',user_id:uid,date:'2026-09-01',run_type:'long',duration_min:60,distance_km:8,hr_avg:130},{id:'b',user_id:uid,date:date(),run_type:'long',duration_min:70,distance_km:10,hr_avg:132}],pain_logs:[{id:'p',user_id:uid,date:date(),site:'left_ankle_extensor',movement:'eversion',score:0}],daily_log:[],photos:[],set_logs:[],v_load_weekly:[],user_settings:[]});db.rpc=async()=>({data:[],error:null});const Progress=mountSource('components/Progress.js',db);await act(async()=>{mounted=create(React.createElement(Progress,{userId:uid}));});await flush();const output=text(mounted.toJSON());assert.match(output,/2\s+recorded runs/);assert.doesNotMatch(output,/Cold pain|Strength ·/);assert.match(output,/Tempo \/ threshold/);assert.doesNotMatch(output,/62 →|4km →|VT2/);assert.match(output,/No photos for this view yet/);capture('progress',mounted);
 });
 
 
@@ -404,15 +404,15 @@ test('extra set survives an uncertain response and can be logged with RIR clicke
  assert.equal(db.tables.workout_exercises[0].sets,3);
 });
 
-test('six photo views expose independent camera and upload inputs and retain pose',async()=>{
+test('three photo views expose independent camera and upload inputs and retain pose',async()=>{
  const db=database({daily_log:[],photos:[]});db.storage={from:()=>({upload:async()=>({data:{}}),createSignedUrl:async()=>({data:{signedUrl:'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=='}})})};
  const Body=mountSource('components/BodyCard.js',db);await act(async()=>{mounted=create(React.createElement(Body,{userId:'test-user'}));});await flush();
- for(const slot of ['AM','PM'])for(const pose of ['front','back','arm']){
-  const camera=mounted.root.findByProps({'aria-label':`${slot} ${pose} camera`});const upload=mounted.root.findByProps({'aria-label':`${slot} ${pose} upload`});
+ for(const pose of ['front','back','arm']){
+  const camera=mounted.root.findByProps({'aria-label':`${pose} camera`});const upload=mounted.root.findByProps({'aria-label':`${pose} upload`});
   assert.equal(camera.props.capture,'environment');assert.equal(upload.props.capture,undefined);
   await act(async()=>upload.props.onChange({target:{files:[{name:'same.png',size:10,lastModified:1,type:'image/png'}],value:''}}));
  }
- assert.equal(db.tables.photos.length,6);assert.equal(new Set(db.tables.photos.map(p=>p.slot+':'+p.pose)).size,6);
+ assert.equal(db.tables.photos.length,3);assert.equal(new Set(db.tables.photos.map(p=>p.slot+':'+p.pose)).size,3);
  capture('six-photos',mounted);
 });
 
@@ -521,46 +521,12 @@ test('clearing isotonic removes its mirrored carbohydrate row', async () => {
 });
 
 // ---------- ACWR transparency ----------
-const ACWR = {
-  basis: 'time', unit: 'minutes',
-  formula: 'ACWR = acute ÷ chronic.',
-  why_time: 'Time is the default basis.',
-  acute_window: '2026-09-09 to 2026-09-15', chronic_window: '2026-08-19 to 2026-09-15',
-  acute: 66, total_28d: 379.2, chronic_avg: 94.8, ratio: 0.7,
-  bands: [
-    { range: '> 1.5', meaning: 'Spike.' }, { range: '1.3 – 1.5', meaning: 'Climbing fast.' },
-    { range: '0.8 – 1.3', meaning: 'Sensible progression.' }, { range: '< 0.8', meaning: 'Detraining or deliberate cutback.' },
-  ],
-  caveat: 'Gabbett thresholds are contested.',
-  rows: [{ date: '2026-09-14', kind: 'run', value: 66, in_acute: true }, { date: '2026-08-30', kind: 'lift', value: 45, in_acute: false }],
-};
-
-test('load detail shows the arithmetic and marks the band the ratio falls in', async () => {
-  const db = database({}, () => false, { acwr_detail: ({ basis }) => ({ ...ACWR, basis }) });
-  const Acwr = mountSource('components/AcwrDetail.js', db);
-  await act(async () => { mounted = create(React.createElement(Acwr, { onClose() {} })); });
-  await flush();
-  const all = text(mounted.root.findByType('div'));
-  assert.match(all, /0\.70/);          // the ratio itself
-  assert.match(all, /66/);             // acute
-  assert.match(all, /94\.8/);          // chronic average
-  assert.match(all, /Detraining or deliberate cutback/); // the band it lands in
-  assert.match(all, /contested/);      // the honest caveat survives
-  // every contributing session is listed, flagged for its window
-  assert.match(all, /2026-09-14|14 Sep/);
-  assert.match(all, /2026-08-30|30 Aug/);
-});
-
-test('load detail re-asks the database when the basis changes', async () => {
-  const db = database({}, () => false, { acwr_detail: ({ basis }) => ({ ...ACWR, basis, unit: basis === 'distance' ? 'km' : 'minutes' }) });
-  const Acwr = mountSource('components/AcwrDetail.js', db);
-  await act(async () => { mounted = create(React.createElement(Acwr, { onClose() {} })); });
-  await flush();
-  await act(async () => button(mounted, 'Distance').props.onClick());
-  await flush();
-  const calls = db.writes.filter(w => w.op === 'rpc').map(w => w.args.basis);
-  assert.deepEqual(calls, ['time', 'distance']);
-  assert.match(text(mounted.root.findByType('div')), /km/);
+test('load detail separates cycling and running and recalculates the selected basis', async () => {
+ const db=database({runs:[{id:'run',user_id:'test-user',date:date(),run_type:'easy',duration_min:30,distance_km:4,exercise_load:20},{id:'bike',user_id:'test-user',date:date(),run_type:'cycle',duration_min:90,distance_km:25,exercise_load:80}]});
+ const Acwr=mountSource('components/AcwrDetail.js',db);await act(async()=>{mounted=create(React.createElement(Acwr,{userId:'test-user',onClose(){}}));});await flush();
+ assert.match(text(mounted.toJSON()),/Running\s+ratio/);assert.match(text(mounted.toJSON()),/30.0/);assert.doesNotMatch(text(mounted.toJSON()),/90.0/);
+ await act(async()=>button(mounted,'Cycling').props.onClick());assert.match(text(mounted.toJSON()),/90.0/);
+ await act(async()=>button(mounted,'Distance').props.onClick());assert.match(text(mounted.toJSON()),/25.0/);assert.doesNotMatch(text(mounted.toJSON()),/90.0/);assert.equal(db.writes.length,0);
 });
 
 // ---------- Diary ----------
@@ -599,4 +565,37 @@ test('diary offers fuel on a run but not on a commute', async () => {
   assert.equal(fuelButtons.length, 1, 'exactly one fuel button — the run, not the commute');
   await act(async () => fuelButtons[0].props.onClick());
   assert.equal(opened.id, 'r1');
+});
+
+
+test('backdated workout writes to selected date, resumes the same session and skips rest',async()=>{
+ const old='2026-06-01',seed=gymSeed([]);seed.sessions=[];const db=database(seed);
+ const Session=mountSource('components/Session.js',db);const props={day:{id:'day',name:'Test lift',schedule_date:old,schedule_ref:`lift:day:${old}`},date:old,userId:'test-user',onExit(){}};
+ await act(async()=>{mounted=create(React.createElement(Session,props));});await flush();
+ await act(async()=>button(mounted,'Log set 1').props.onClick());
+ assert.equal(db.tables.sessions.length,1);assert.equal(db.tables.sessions[0].date,old);assert.ok(button(mounted,'Log set 2'));
+ await act(async()=>mounted.unmount());await act(async()=>{mounted=create(React.createElement(Session,props));});await flush();
+ assert.ok(button(mounted,'Log set 2'));assert.equal(db.tables.sessions.length,1);assert.equal(db.tables.set_logs.length,1);
+});
+
+test('backdated run and cycle logging keeps selected date and repeated saves do not duplicate',async()=>{
+ const db=database({runs:[]}),Log=mountSource('components/LogPanel.js',db);let changes=0;
+ await act(async()=>{mounted=create(React.createElement(Log,{initialDate:'2026-06-02',initialTab:'run',runType:'cycle',userId:'test-user',onChanged:()=>changes++}));});await flush();
+ const input=mounted.root.findAllByType('input').find(x=>x.props.inputMode==='decimal');
+ await act(async()=>input.props.onChange({target:{value:'25'}}));
+ await act(async()=>button(mounted,'Save activity').props.onClick());await act(async()=>button(mounted,'Save activity').props.onClick());
+ assert.equal(db.tables.runs.length,1);assert.equal(db.tables.runs[0].date,'2026-06-02');assert.equal(db.tables.runs[0].run_type,'cycle');assert.equal(db.tables.runs[0].duration_min,25);assert.ok(changes);
+});
+
+test('photo thumbnails open a large viewer and close without changing photos',async()=>{
+ const Viewer=mountSource('components/PhotoViewer.js',database({}));await act(async()=>{mounted=create(React.createElement(Viewer,{src:'photo.jpg',alt:'Front photo'}));});
+ await act(async()=>button(mounted,'').props.onClick());assert.equal(mounted.root.findAllByType('dialog').length,1);
+ await act(async()=>button(mounted,'Close photo').props.onClick());assert.equal(mounted.root.findAllByType('dialog').length,0);
+});
+
+test('Week opens both past and future dates without scheduling writes',async()=>{
+ const db=database({run_plan:[],workout_days:[],runs:[],sessions:[],lift_schedule:[],v_load_weekly:[]});let opened;
+ const Week=mountSource('components/Week.js',db);await act(async()=>{mounted=create(React.createElement(Week,{initialDate:'2026-09-22',userId:'test-user',onOpenDay:d=>opened=d}));});await flush();
+ await act(async()=>mounted.root.findByProps({'aria-label':'Open day 2026-09-22'}).props.onClick());assert.equal(opened,'2026-09-22');
+ await act(async()=>button(mounted,'←').props.onClick());await flush();await act(async()=>mounted.root.findByProps({'aria-label':'Open day 2026-09-15'}).props.onClick());assert.equal(opened,'2026-09-15');assert.equal(db.writes.length,0);
 });

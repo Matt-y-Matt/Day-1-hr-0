@@ -22,25 +22,26 @@ const SITES = [
 ];
 const MOVES = ['dorsiflexion', 'eversion', 'inversion', 'plantarflexion', 'general'];
 
-export default function LogPanel() {
-  const [tab, setTab] = useState('pain');
+export default function LogPanel({ initialDate = today(), initialTab = 'pain', runType = 'easy', userId, onChanged }) {
+  const [tab, setTab] = useState(initialTab);
+  const [date,setDate]=useState(initialDate);
   return (
     <div className="wrap">
-      <h1>Log</h1>
+      <h1>Log</h1><label>Activity date<input type="date" max={today()} value={date} onChange={e=>{if(e.target.value)setDate(e.target.value);}}/></label>
       <div className="grid3" style={{ marginBottom: 18 }}>
         {['pain', 'run', 'daily'].map(t => (
           <button key={t} className={'btn ' + (tab === t ? '' : 'ghost')} style={{ padding: 12, fontSize: 14 }}
             onClick={() => setTab(t)}>{t === 'pain' ? 'Pain' : t === 'run' ? 'Run' : 'Daily'}</button>
         ))}
       </div>
-      {tab === 'pain' && <Pain />}
-      {tab === 'run' && <Run />}
-      {tab === 'daily' && <Daily />}
+      {tab === 'pain' && <Pain date={date} onChanged={onChanged}/>}
+      {tab === 'run' && <Run key={date} date={date} initialType={runType} userId={userId} onChanged={onChanged}/>}
+      {tab === 'daily' && <Daily date={date} onChanged={onChanged}/>}
     </div>
   );
 }
 
-function Pain() {
+function Pain({date,onChanged}) {
   const [site, setSite] = useState('left_ankle_extensor');
   const [move, setMove] = useState('dorsiflexion');
   const [score, setScore] = useState(0);
@@ -49,7 +50,7 @@ function Pain() {
   const { busy, error, write } = useWrite();
   async function save() { await write(async () => {
     setMsg('');
-    await checked(supa().from('pain_logs').insert({ date: today(), site, movement: move, score, note: note || null }));
+    await checked(supa().from('pain_logs').insert({ date, site, movement: move, score, note: note || null }));
     setMsg(score === 0 ? 'Logged — clean reading.' : 'Logged.');
     setNote(''); setTimeout(() => setMsg(''), 2500);
   }); }
@@ -81,28 +82,33 @@ const F = ({ label, ...p }) => (
   <div className="field"><label>{label}</label><input inputMode="decimal" {...p} /></div>
 );
 
-function Run() {
-  const [f, setF] = useState({ run_type: 'easy', duration_min: '', distance_km: '', hr_avg: '', hr_max: '',
+function Run({date,initialType='easy',userId,onChanged}) {
+  const [f, setF] = useState({ run_type: initialType, duration_min: '', distance_km: '', hr_avg: '', hr_max: '',
     min_under_135: '', cadence_avg: '', temp_c: '', shoes: '', exercise_load: '', training_effect: '',
     recovery_hr: '', feel_1_5: 3, notes: '' });
   const [msg, setMsg] = useState('');
   const { busy, error, write } = useWrite();
-  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const rowId=useRef(null);
+  const set = (k) => (e) => {rowId.current=null;setF({ ...f, [k]: e.target.value });};
   async function save() { await write(async () => {
     setMsg('');
+    if (!date || date > today()) throw new Error('Choose today or an earlier date.');
+    if (!(Number(f.duration_min)>0) || (f.distance_km!=='' && !(Number(f.distance_km)>0))) throw new Error('Enter a positive duration and, if known, distance.');
     const p = { ...f };
     ['duration_min','distance_km','hr_avg','hr_max','min_under_135','cadence_avg','temp_c',
      'exercise_load','training_effect','recovery_hr']
       .forEach(k => p[k] = p[k] === '' ? null : Number(p[k]));
     p.feel_1_5 = Number(p.feel_1_5);
-    await checked(supa().from('runs').insert({ ...p, date: today() }));
-    setMsg('Run logged.'); setTimeout(() => setMsg(''), 2500);
+    rowId.current ||= crypto.randomUUID();
+    await checked(supa().from('runs').upsert({ ...p, id:rowId.current, user_id:userId, date },{onConflict:'id'}));
+    onChanged?.();
+    setMsg(`Activity saved for ${date}.`); setTimeout(() => setMsg(''), 2500);
   }); }
   return (
     <div className="card">
       <div className="field"><label>Type</label>
         <select value={f.run_type} onChange={set('run_type')}>
-          {['easy','long','threshold','test','cycle','walk','race'].map(t => <option key={t}>{t}</option>)}</select></div>
+          {['easy','long','tempo','threshold','hard','test','cycle','walk','race'].map(t => <option key={t}>{t}</option>)}</select></div>
       <div className="grid2">
         <F label="Duration (min)" value={f.duration_min} onChange={set('duration_min')} />
         <F label="Distance (km)" value={f.distance_km} onChange={set('distance_km')} />
@@ -124,14 +130,14 @@ function Run() {
       <div className="field"><label>Notes</label>
         <textarea rows={3} value={f.notes} onChange={set('notes')}
           placeholder="Tendon during / after. Cadence under fatigue. What broke down." /></div>
-      <button className="btn" disabled={busy} onClick={save}>Save run</button>
+      <button className="btn" disabled={busy} onClick={save}>Save activity</button>
       {error && <div className="flag" role="alert">{error}</div>}
       {msg && <div className="flag ok" style={{ marginTop: 12 }}>{msg}</div>}
     </div>
   );
 }
 
-function Daily() {
+function Daily({date,onChanged}) {
   const [f, setF] = useState({ weight_am_kg: '', weight_pm_kg: '', calories: '', protein_g: '',
     resting_hr: '', sleep_hours: '', note: '' });
   const [msg, setMsg] = useState('');
@@ -139,12 +145,12 @@ function Daily() {
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   async function save() { await write(async () => {
     setMsg('');
-    const p = { date: today() };
+    const p = { date };
     Object.entries(f).forEach(([k, v]) => { if (v !== '') p[k] = k === 'note' ? v : Number(v); });
     await checked(supa().from('daily_log').upsert(p, { onConflict: 'user_id,date' }));
     setMsg('Saved.'); setTimeout(() => setMsg(''), 2500);
   }); }
-  async function photo(e, slot) {
+  async function photo(e, pose) {
     const file = e.target.files?.[0]; if (!file) return;
     await write(async () => {
       setMsg('');
@@ -152,10 +158,10 @@ function Daily() {
       const { data, error } = await s.auth.getUser();
       if (error) throw error;
       if (!data.user) throw new Error('Sign in before uploading a photo.');
-      const path = `${data.user.id}/${today()}-${slot}-${Date.now()}.jpg`;
+      const path = `${data.user.id}/${date}-photo-${Date.now()}.jpg`;
       await checked(s.storage.from('photos').upload(path, file));
-      await checked(s.from('photos').insert({ date: today(), slot, storage_path: path }));
-      setMsg(`${slot.toUpperCase()} photo saved.`);
+      await checked(s.from('photos').insert({ date, slot:'photo', pose, storage_path: path }));
+      setMsg(`${pose} photo saved.`);
     });
   }  return (
     <div className="card">
@@ -170,14 +176,7 @@ function Daily() {
       <div className="muted" style={{ marginBottom: 12 }}>
         Targets: 2,400 cal · 150g protein. Long-run days go to 2,900 / 390g carbs.
       </div>
-      <div className="grid2" style={{ marginBottom: 12 }}>
-        <label className="btn ghost" style={{ textAlign: 'center', padding: 14, cursor: 'pointer' }}>
-          📷 AM photo<input type="file" disabled={busy} accept="image/*" capture="environment"
-            style={{ display: 'none' }} onChange={e => photo(e, 'am')} /></label>
-        <label className="btn ghost" style={{ textAlign: 'center', padding: 14, cursor: 'pointer' }}>
-          📷 PM photo<input type="file" disabled={busy} accept="image/*" capture="environment"
-            style={{ display: 'none' }} onChange={e => photo(e, 'pm')} /></label>
-      </div>
+      <div className="photo-slot-grid">{['front','back','arm'].map(pose=><label className="btn ghost" key={pose}>{pose} photo<input type="file" disabled={busy} accept="image/*" onChange={e=>photo(e,pose)}/></label>)}</div>
       <div className="field"><label>Note</label>
         <input value={f.note} onChange={set('note')} placeholder="optional" /></div>
       <button className="btn" disabled={busy} onClick={save}>Save day</button>

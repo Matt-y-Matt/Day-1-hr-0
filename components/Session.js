@@ -6,12 +6,12 @@ import { GymRestTimer } from './Timers';
 import { nextSet, loadLabel, recordId } from '../lib/gym.mjs';
 import { unlockTimerAudio } from '../lib/useTimer';
 
-export default function Session({ day, onExit, beepEnabled = false, userId }) {
+export default function Session({ day, onExit, beepEnabled = false, userId, date = day.schedule_date || today() }) {
   const lock = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [mode, setMode] = useState('log');
-  const restPointer = `gym-rest:${userId}:${day.schedule_ref||day.id}:${today()}`;
+  const restPointer = `gym-rest:${userId}:${day.schedule_ref||day.id}:${date}`;
   const [items, setItems] = useState([]);
   const [idx, setIdx] = useState(0);
   const [setNo, setSetNo] = useState(1);
@@ -36,7 +36,7 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
   useEffect(() => { (async () => {
     const s = supa();
     try {
-    const [openResult,performance,suggestions] = await Promise.all([s.from('sessions').select('*').eq('workout_day_id',day.id).eq('user_id',userId).eq('date',today()).order('started_at',{ascending:false,nullsFirst:false}),s.from('v_last_performance').select('*'),s.from('v_progression_suggestions').select('*')]);
+    const [openResult,performance,suggestions] = await Promise.all([s.from('sessions').select('*').eq('workout_day_id',day.id).eq('user_id',userId).eq('date',date).order('started_at',{ascending:false,nullsFirst:false}),s.from('v_last_performance').select('*'),s.from('v_progression_suggestions').select('*')]);
     const {data:allOpen,error:openError}=openResult;
     if(openError)throw openError;
     const open=(allOpen||[]).filter(x=>!x.schedule_ref||x.schedule_ref===day.schedule_ref);
@@ -81,7 +81,7 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
     setSessionId(sid);
     } catch (e) { setItems([]); setError(e.message); }
     setLoading(false);
-  })(); }, [day.id]);
+  })(); }, [day.id,date]);
 
   const cur = items[idx];
   const ex = cur?.exercises;
@@ -105,8 +105,9 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
     }
 
     // 2. otherwise last week's number for this set, or the suggestion, or the seeded start
-    const prev = last[cur.exercise_id]?.[setNo] || last[cur.exercise_id]?.[1];
-    const s = sugg[cur.exercise_id];
+    const previous = last[cur.exercise_id]?.[setNo] || last[cur.exercise_id]?.[1];
+    const prev = previous?.date < date ? previous : null;
+    const s = date === today() ? sugg[cur.exercise_id] : null;
     setWeight(Number(prev?.weight_kg ?? cur.target_weight_kg ?? 0));
     setReps(Number(prev?.reps ?? cur.rep_min ?? 0));
     setRir(2);
@@ -126,7 +127,7 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
   const doneSets = Object.values(logged).reduce((a, o) => a + Object.keys(o).length, 0);
 
   function startRest(sec, sid, savedId) {
-    if (sec <= 0) return;
+    if (sec <= 0 || date < today()) return;
     const value = { seconds: sec, sessionId: sid, token: `timer:${userId}:gym-rest:${sid}:${savedId}:${Date.now()}` };
     try { localStorage.setItem(restPointer, JSON.stringify(value)); } catch {}
     setResting(value);
@@ -136,7 +137,7 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
     setResting(0);
   }
   async function logSet() {
-    if (lock.current) return;
+    if (lock.current || date > today()) return;
     if (beepEnabled) unlockTimerAudio();
     lock.current = true; setBusy(true); setError('');
     try {
@@ -146,8 +147,8 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
       if (!isHold && (rir === '' || !Number.isInteger(Number(rir)) || Number(rir)<0 || Number(rir)>10)) throw new Error('Enter RIR from 0 to 10.');
       const db = supa(); let sid = sessionId;
       if (!sid) {
-        sid = await recordId(`gym-session:${userId}:${day.schedule_ref||day.id}:${today()}`);
-        const result = await db.from('sessions').upsert({ id: sid, user_id: userId, date: today(), workout_day_id: day.id, schedule_ref: day.schedule_ref||null, workout_snapshot: items, started_at: new Date().toISOString() }, { onConflict: 'id', ignoreDuplicates: true });
+        sid = await recordId(`gym-session:${userId}:${day.schedule_ref||day.id}:${date}`);
+        const result = await db.from('sessions').upsert({ id: sid, user_id: userId, date, workout_day_id: day.id, schedule_ref: day.schedule_ref||null, workout_snapshot: items, started_at: new Date().toISOString() }, { onConflict: 'id', ignoreDuplicates: true });
         if (result.error) throw result.error;
         setSessionId(sid);
       }
@@ -173,7 +174,7 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
     finally { lock.current = false; setBusy(false); }
   }
   async function deleteSet() {
-    if (lock.current || !editing) return;
+    if (lock.current || date > today() || !editing) return;
     lock.current = true; setBusy(true); setError('');
     try {
       const { error } = await supa().from('set_logs').delete().eq('user_id',userId).eq('session_id',sessionId).eq('exercise_id',cur.exercise_id).eq('set_number',setNo);
@@ -187,13 +188,13 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
   }
 
   async function addSet() {
-    if (lock.current) return;
+    if (lock.current || date > today()) return;
     lock.current=true; setBusy(true); setError('');
     try {
       let sid=sessionId;
       if (!sid) {
-        sid=await recordId(`gym-session:${userId}:${day.schedule_ref||day.id}:${today()}`);
-        const r=await supa().from('sessions').upsert({id:sid,user_id:userId,date:today(),workout_day_id:day.id,schedule_ref:day.schedule_ref||null,workout_snapshot:items,started_at:new Date().toISOString()},{onConflict:'id',ignoreDuplicates:true});
+        sid=await recordId(`gym-session:${userId}:${day.schedule_ref||day.id}:${date}`);
+        const r=await supa().from('sessions').upsert({id:sid,user_id:userId,date,workout_day_id:day.id,schedule_ref:day.schedule_ref||null,workout_snapshot:items,started_at:new Date().toISOString()},{onConflict:'id',ignoreDuplicates:true});
         if(r.error)throw r.error; setSessionId(sid);
       }
       const r=await supa().rpc('add_session_set',{p_session:sid,p_exercise:cur.exercise_id,p_expected_sets:Number(cur.sets)});
@@ -205,7 +206,7 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
   }
 
   async function finish() {
-    if (lock.current || !sessionId) return;
+    if (lock.current || date > today() || !sessionId) return;
     lock.current = true; setBusy(true); setError('');
     try {
     const { error } = await supa().from('sessions').update({
@@ -254,8 +255,9 @@ export default function Session({ day, onExit, beepEnabled = false, userId }) {
     </div>
   );
 
-  const prev = last[cur.exercise_id]?.[setNo];
-  const s = sugg[cur.exercise_id];
+  const candidate = last[cur.exercise_id]?.[setNo];
+  const prev = candidate?.date < date ? candidate : null;
+  const s = date === today() ? sugg[cur.exercise_id] : null;
   const exLogged = logged[cur.exercise_id] || {};
 
   return (

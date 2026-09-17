@@ -5,14 +5,14 @@ import { loadSchedule } from '../lib/schedule-client';
 import { MEALS, mealBasis, scaleMeal, nutritionTotal, numberField } from '../lib/logging.mjs';
 import { supa, today } from '../lib/supabase';
 
-export function FoodCard({ userId, dayType, onOpen }) {
+export function FoodCard({ userId, dayType, onOpen, date = today() }) {
   const [data, setData] = useState(null), [error, setError] = useState('');
   useEffect(() => { let alive = true; (async () => {
-    const results = await Promise.all([supa().from('v_daily_nutrition').select('*').eq('user_id', userId).eq('date', today()).maybeSingle(), supa().from('user_settings').select('*').eq('user_id', userId).maybeSingle(), supa().from('foods').select('*').eq('is_archived',false).eq('is_favourite', true).order('name').limit(3)]);
+    const results = await Promise.all([supa().from('v_daily_nutrition').select('*').eq('user_id', userId).eq('date', date).maybeSingle(), supa().from('user_settings').select('*').eq('user_id', userId).maybeSingle(), supa().from('foods').select('*').eq('is_archived',false).eq('is_favourite', true).order('name').limit(3)]);
     if (!alive) return;
     if (results.some(r => r.error)) { setError('Could not load food totals.'); return; }
     setData({ total: results[0].data || {}, settings: results[1].data || {}, favourites: results[2].data || [] });
-  })().catch(e => { if (alive) setError(e.message); }); return () => { alive = false; }; }, [userId]);
+  })().catch(e => { if (alive) setError(e.message); }); return () => { alive = false; }; }, [userId,date]);
   const kcal = data?.total.kcal || 0, protein = data?.total.protein_g || 0;
   const target = data?.settings[`kcal_${dayType}`] ?? ({ rest: 1800, easy: 2000, run_lift: 2300, long: 2700 }[dayType]);
   const pTarget = data?.settings.protein_g ?? 155;
@@ -24,11 +24,11 @@ export function FoodCard({ userId, dayType, onOpen }) {
   </section>;
 }
 
-export default function FoodLog({userId,initialFood,onClose,onChanged}){
+export default function FoodLog({userId,initialFood,onClose,onChanged,initialDate}){
   const [foods,setFoods]=useState([]),[entries,setEntries]=useState([]),[settings,setSettings]=useState({}),[query,setQuery]=useState('');
   const [selected,setSelected]=useState(initialFood||null),[editing,setEditing]=useState(null),[servings,setServings]=useState('1'),[meal,setMeal]=useState('snack');
   const [custom,setCustom]=useState({name:'',serving_desc:'',kcal:'',protein_g:'',carbs_g:'',fat_g:'',save:false});
-  const [date,setDate]=useState(today),[dayType,setDayType]=useState('easy'),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState(''),[deleteId,setDeleteId]=useState(null),[loadError,setLoadError]=useState(false),[retry,setRetry]=useState(0);
+  const [date,setDate]=useState(initialDate||today()),[dayType,setDayType]=useState('easy'),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState(''),[deleteId,setDeleteId]=useState(null),[loadError,setLoadError]=useState(false),[retry,setRetry]=useState(0);
   const [deleteFoodId,setDeleteFoodId]=useState(null);
   const lock=useRef(false),rowId=useRef(null),foodId=useRef(null);
   useEffect(()=>{let alive=true;setLoading(true);setLoadError(false);setError('');(async()=>{
