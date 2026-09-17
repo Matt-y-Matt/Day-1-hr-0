@@ -599,3 +599,15 @@ test('Week opens both past and future dates without scheduling writes',async()=>
  await act(async()=>mounted.root.findByProps({'aria-label':'Open day 2026-09-22'}).props.onClick());assert.equal(opened,'2026-09-22');
  await act(async()=>button(mounted,'←').props.onClick());await flush();await act(async()=>mounted.root.findByProps({'aria-label':'Open day 2026-09-15'}).props.onClick());assert.equal(opened,'2026-09-15');assert.equal(db.writes.length,0);
 });
+
+test('manual cable crunch rest keeps the selected set and writes no logs',async()=>{
+  const seed=gymSeed([1]);seed.workout_exercises[0].exercises.name='Cable Crunch';
+  const db=database(seed);await mountGym(db);
+  await act(async()=>mounted.root.findByProps({'aria-label':'Set 1, completed'}).props.onClick());
+  await act(async()=>button(mounted,'Start rest timer').props.onClick());
+  assert.ok(mounted.root.findByProps({'aria-label':'90 seconds remaining'}));
+  assert.equal(db.tables.set_logs.length,1);
+  await act(async()=>button(mounted,'Start set 1 now').props.onClick());
+  assert.ok(button(mounted,'Update set 1'));
+  assert.equal(db.tables.set_logs.length,1);
+});

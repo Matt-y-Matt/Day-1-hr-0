@@ -126,8 +126,8 @@ export default function Session({ day, onExit, beepEnabled = false, userId, date
   const totalSets = items.reduce((a, b) => a + b.sets, 0);
   const doneSets = Object.values(logged).reduce((a, o) => a + Object.keys(o).length, 0);
 
-  function startRest(sec, sid, savedId) {
-    if (sec <= 0 || date < today()) return;
+  function startRest(sec, sid, savedId, manual = false) {
+    if (sec <= 0 || (!manual && date < today())) return;
     const value = { seconds: sec, sessionId: sid, token: `timer:${userId}:gym-rest:${sid}:${savedId}:${Date.now()}` };
     try { localStorage.setItem(restPointer, JSON.stringify(value)); } catch {}
     setResting(value);
@@ -387,6 +387,8 @@ export default function Session({ day, onExit, beepEnabled = false, userId, date
       <button className="btn" disabled={busy} onClick={logSet}>
         {editing ? `✓ Update set ${setNo}` : `✓ Log set ${setNo}`}
       </button>
+      {restSec > 0 && <button className="btn ghost" disabled={busy} onClick={() => startRest(restSec, sessionId || day.id, 'manual', true)}>Start rest timer · {restSec}s</button>}
+      {editing && <p className="muted">Updating a saved set does not start rest automatically. Use the rest timer when training.</p>}
       {editing && (
         <button className="btn ghost danger" style={{ marginTop: 10 }} disabled={busy} onClick={deleteSet}>
           Delete set {setNo}
