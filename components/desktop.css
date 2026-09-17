@@ -211,7 +211,29 @@
 .photo-lightbox::backdrop { background: rgba(0,0,0,.85); }
 .photo-lightbox > img { display: block; max-width: 85vw; max-height: 78dvh; object-fit: contain; margin-top: 12px; }
 @media (min-width: 1000px) {
-  .today-screen { grid-template-columns: minmax(0,1.35fr) minmax(300px,1fr); }
+  /* Keep the page frame readable; individual screens opt into grids below. */
+  .wrap { display: block; max-width: 1180px; }
+  .wrap > * { margin-top: 0; margin-bottom: 14px; }
+  .wrap > .row { margin-bottom: 10px; }
+  .wrap > h1 { margin-bottom: 6px; }
+  .wrap > .sub { margin-bottom: 18px; }
+
+  /* Dashboard and progress use balanced card columns instead of a single
+     long mobile stack. Headings and summaries remain full width. */
+  .dashboard-screen, .progress-screen { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+  .dashboard-screen > h1, .dashboard-screen > .sub,
+  .progress-screen > .row, .progress-screen > .sub,
+  .progress-screen > h2, .progress-screen > .muted { grid-column: 1 / -1; }
+  .progress-screen > .trend-card, .progress-screen > .photo-compare,
+  .progress-screen > .table-scroll { min-width: 0; }
+
+  /* Week and diary read best at a moderate width, with their internal rows
+     stretching naturally rather than creating empty grid tracks. */
+  .week-screen, .diary-screen { max-width: 980px; }
+  .week-screen .week-list { display: flex; }
+  .diary-screen > .card { max-width: 760px; }
+
+  .today-screen { display: grid; grid-template-columns: minmax(0,1.35fr) minmax(300px,1fr); gap: 16px; }
   .today-screen > .daily-row, .today-screen > .pain-row { grid-column: 1 / -1; }
   .today-screen > .today-session { grid-column: 1; display: block; }
   .today-screen > .today-session > * + * { margin-top: 14px; }
